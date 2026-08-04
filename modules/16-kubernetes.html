@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 16 · Kubernetes — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="16">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 016</span></div>
+    <div class="module-badge">Module 16 of 23</div>
+    <h1 class="title">Kubernetes (Strimzi)</h1>
+    <p class="dek lead">Kafka has strong opinions about identity (broker IDs), storage (persistent, per-broker disks), and startup order — exactly the things vanilla Kubernetes Deployments handle badly. Strimzi packages Kafka's needs into a Kubernetes-native operator so you describe desired state and it manages the rest.</p>
+
+    <h2><span class="num">16.1</span> Why not just write raw manifests?</h2>
+    <p>A hand-written Deployment treats pods as interchangeable — exactly wrong for Kafka brokers, which need stable identity and stable storage across restarts. Strimzi uses <strong>StatefulSets</strong> under the hood (stable network identity, ordered startup, one PVC per broker) and layers Kafka-specific lifecycle logic — rolling upgrades, certificate rotation, rack-aware replica placement — on top.</p>
+
+    <h2><span class="num">16.2</span> Installing Strimzi via Helm</h2>
+    <pre><code>helm repo add strimzi https://strimzi.io/charts/
+helm install kafka-operator strimzi/strimzi-kafka-operator \
+  --namespace kafka --create-namespace</code></pre>
+
+    <h2><span class="num">16.3</span> Defining a Kafka cluster as a Custom Resource</h2>
+    <pre><code><span class="tok-kw">apiVersion</span>: kafka.strimzi.io/v1beta2
+<span class="tok-kw">kind</span>: Kafka
+<span class="tok-kw">metadata</span>:
+  <span class="tok-kw">name</span>: my-cluster
+  <span class="tok-kw">namespace</span>: kafka
+<span class="tok-kw">spec</span>:
+  <span class="tok-kw">kafka</span>:
+    <span class="tok-kw">version</span>: 3.9.0
+    <span class="tok-kw">replicas</span>: 3
+    <span class="tok-kw">listeners</span>:
+      - <span class="tok-kw">name</span>: plain
+        <span class="tok-kw">port</span>: 9092
+        <span class="tok-kw">type</span>: internal
+        <span class="tok-kw">tls</span>: <span class="tok-kw">false</span>
+    <span class="tok-kw">storage</span>:
+      <span class="tok-kw">type</span>: persistent-claim
+      <span class="tok-kw">size</span>: 100Gi
+    <span class="tok-kw">config</span>:
+      <span class="tok-kw">offsets.topic.replication.factor</span>: 3
+      <span class="tok-kw">default.replication.factor</span>: 3
+      <span class="tok-kw">min.insync.replicas</span>: 2
+  <span class="tok-kw">entityOperator</span>:
+    <span class="tok-kw">topicOperator</span>: {}
+    <span class="tok-kw">userOperator</span>: {}</code></pre>
+    <pre><code>kubectl apply -f my-cluster.yaml -n kafka
+kubectl get pods -n kafka
+<span class="tok-cmt"># my-cluster-kafka-0, my-cluster-kafka-1, my-cluster-kafka-2 — one per broker, stable names</span></code></pre>
+
+    <h2><span class="num">16.4</span> Managing topics declaratively</h2>
+    <p>With the Topic Operator enabled above, topics become Kubernetes Custom Resources too — creating a topic is a <code>kubectl apply</code>, not a manual CLI call, which fits naturally into GitOps workflows:</p>
+    <pre><code><span class="tok-kw">apiVersion</span>: kafka.strimzi.io/v1beta2
+<span class="tok-kw">kind</span>: KafkaTopic
+<span class="tok-kw">metadata</span>:
+  <span class="tok-kw">name</span>: orders
+  <span class="tok-kw">labels</span>:
+    <span class="tok-kw">strimzi.io/cluster</span>: my-cluster
+<span class="tok-kw">spec</span>:
+  <span class="tok-kw">partitions</span>: 6
+  <span class="tok-kw">replicas</span>: 3</code></pre>
+
+    <h2><span class="num">16.5</span> StatefulSets under the hood</h2>
+    <p>Each broker pod gets a predictable DNS name (<code>my-cluster-kafka-0.my-cluster-kafka-brokers</code>), its own PersistentVolumeClaim that survives pod rescheduling, and ordered, one-at-a-time rolling restarts — critical since restarting all brokers simultaneously would take the whole cluster's leadership down at once.</p>
+
+    <h2><span class="num">16.6</span> Common mistakes</h2>
+    <ul>
+      <li>Writing raw Deployments/StatefulSets by hand instead of using an operator — reinventing rolling-restart-with-leader-awareness logic that Strimzi already solved.</li>
+      <li>Undersizing persistent volume storage class performance — Kafka's disk-throughput sensitivity (Module 8.5) applies just as much inside Kubernetes.</li>
+      <li>Not setting pod anti-affinity / rack awareness — letting all three broker pods land on the same physical node defeats the purpose of replication factor 3.</li>
+    </ul>
+
+    <h2><span class="num">16.7</span> Summary</h2>
+    <p>Strimzi turns Kafka's operational complexity — stable identity, ordered restarts, persistent per-broker storage — into a declarative Custom Resource, backed by StatefulSets. Combined with the Topic Operator, an entire Kafka cluster and its topics can live in Git and be managed the same way as the rest of a Kubernetes-native stack.</p>
+
+    <div class="footnav">
+      <a href="15-docker.html">&larr; Module 15 · Docker</a>
+      <a class="next" href="17-aws-msk.html">Module 17 · AWS MSK (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
