@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 21 · Hands-on Projects — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="21">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 021</span></div>
+    <div class="module-badge">Module 21 of 23</div>
+    <h1 class="title">Hands-on Projects</h1>
+    <p class="dek lead">Eight builds, ordered roughly by difficulty. Each one is deliberately designed to force you to use a specific module's concepts for real, rather than just reading about them.</p>
+
+    <h2><span class="num">21.1</span> Project 1 — Real-time chat application</h2>
+    <p><strong>Concepts exercised:</strong> topics per chat room, keying by room ID for ordering (Module 5.4), consumer groups per connected client.</p>
+    <p>One topic per room (or one topic with room ID as key), a WebSocket gateway service that produces messages and consumes them back out to connected clients. The interesting problem: each connected browser needs its <em>own</em> view of the stream, which means each WebSocket connection needs its own consumer group — not shared — since every connected client should see every message, not compete for messages like a work queue.</p>
+
+    <h2><span class="num">21.2</span> Project 2 — Food delivery order tracking</h2>
+    <p><strong>Concepts exercised:</strong> event sourcing (Module 19.3), KTable for "current order status" (Module 10.1).</p>
+    <p>Every state change (<code>OrderPlaced</code>, <code>DriverAssigned</code>, <code>PickedUp</code>, <code>Delivered</code>) is an event on an <code>order-events</code> topic, keyed by order ID. A Kafka Streams job folds this into a KTable of current status per order, which a small API serves to the tracking UI — this is CQRS (Module 19.2) in miniature.</p>
+
+    <h2><span class="num">21.3</span> Project 3 — Stock market stream processor</h2>
+    <p><strong>Concepts exercised:</strong> windowing (Module 10.4), high-throughput producer tuning (Module 14.1).</p>
+    <p>A producer simulates or ingests a real tick stream keyed by ticker symbol. A Kafka Streams topology computes rolling VWAP (volume-weighted average price) using tumbling or hopping windows, publishing results to a downstream topic that a dashboard consumes.</p>
+
+    <h2><span class="num">21.4</span> Project 4 — Ride-hailing dispatch</h2>
+    <p><strong>Concepts exercised:</strong> KStream-KTable join (Module 10.5), saga pattern (Module 19.1).</p>
+    <p>A stream of ride requests joined against a KTable of currently available drivers (updated by driver-location-ping events) to find matches. Once matched, a small saga coordinates <code>DriverAssigned</code> &rarr; <code>RideAccepted</code>/<code>RideRejected</code> &rarr; re-match on rejection.</p>
+
+    <h2><span class="num">21.5</span> Project 5 — Order management with the Outbox pattern</h2>
+    <p><strong>Concepts exercised:</strong> outbox pattern (Module 19.4), Kafka Connect + Debezium (Module 9.3).</p>
+    <p>A Spring Boot order service (Module 18) writes both the order row and an outbox event row in one local database transaction. A Debezium CDC source connector streams the outbox table into Kafka — deliberately built to expose the dual-write bug first (by skipping the outbox table), then fix it, so you feel the failure mode directly.</p>
+
+    <h2><span class="num">21.6</span> Project 6 — Centralized log aggregation</h2>
+    <p><strong>Concepts exercised:</strong> Kafka's original use case, retention tuning (Module 8.2), monitoring (Module 13).</p>
+    <p>Multiple services ship logs to a shared <code>app-logs</code> topic; a sink connector (Module 9.4) pushes them into Elasticsearch for search, while a separate long-retention topic keeps raw logs for compliance. Good project for practicing dashboarding lag and throughput (Module 13.4).</p>
+
+    <h2><span class="num">21.7</span> Project 7 — IoT sensor monitoring</h2>
+    <p><strong>Concepts exercised:</strong> partition key design for many independent devices (Module 5.4), session windows (Module 10.4).</p>
+    <p>Thousands of simulated sensors publish readings keyed by device ID. A Streams job flags anomalies (value outside a rolling bound) and uses session windows to detect "device went offline" (a session that never closes with a new reading).</p>
+
+    <h2><span class="num">21.8</span> Project 8 — Real-time fraud detection pipeline</h2>
+    <p><strong>Concepts exercised:</strong> everything — exactly-once processing (Module 5.8/10.6), multi-topic joins, schema evolution (Module 11), security (Module 12).</p>
+    <p>Transaction events joined against a KTable of recent transaction history per account (velocity checks — "5 transactions in 60 seconds"), scored, and high-risk transactions routed to a review topic with SASL_SSL + ACLs enforced end to end. This is the capstone project — it's intentionally the one that requires nearly every module in this handbook.</p>
+
+    <h2><span class="num">21.9</span> Summary</h2>
+    <p>Start with Project 1 or 2 if you're still solidifying Modules 5–8; jump to Project 5 once Module 19 clicks; save Project 8 for after you've actually built at least two of the others — it assumes fluency across nearly the whole handbook.</p>
+
+    <div class="footnav">
+      <a href="20-interview-prep.html">&larr; Module 20 · Interview Prep</a>
+      <a class="next" href="22-troubleshooting.html">Module 22 · Troubleshooting (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
