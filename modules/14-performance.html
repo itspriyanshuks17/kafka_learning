@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 14 · Performance Tuning — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="14">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 014</span></div>
+    <div class="module-badge">Module 14 of 23</div>
+    <h1 class="title">Performance Tuning</h1>
+    <p class="dek lead">Kafka's defaults are tuned for balance, not your specific workload. Tuning is always a trade: throughput vs latency, durability vs speed. Know which side of each trade your system actually needs before touching a config.</p>
+
+    <h2><span class="num">14.1</span> Producer tuning</h2>
+    <table>
+      <tr><th>Setting</th><th>Effect</th></tr>
+      <tr><td><code>batch.size</code></td><td>Larger batches = fewer requests, better throughput, slightly higher latency per record</td></tr>
+      <tr><td><code>linger.ms</code></td><td>Deliberately waits this long to fill a batch before sending — trades a few ms of latency for much better throughput under load</td></tr>
+      <tr><td><code>compression.type</code></td><td><code>lz4</code> or <code>zstd</code> shrink network/disk usage significantly with low CPU cost; almost always worth enabling</td></tr>
+      <tr><td><code>buffer.memory</code></td><td>Total memory the producer can use to buffer unsent records — too small causes <code>send()</code> to block under bursty load</td></tr>
+    </table>
+    <pre><code>props.put(<span class="tok-str">"batch.size"</span>, <span class="tok-str">"32768"</span>);
+props.put(<span class="tok-str">"linger.ms"</span>, <span class="tok-str">"10"</span>);
+props.put(<span class="tok-str">"compression.type"</span>, <span class="tok-str">"lz4"</span>);
+props.put(<span class="tok-str">"buffer.memory"</span>, <span class="tok-str">"67108864"</span>);</code></pre>
+
+    <h2><span class="num">14.2</span> Consumer tuning</h2>
+    <table>
+      <tr><th>Setting</th><th>Effect</th></tr>
+      <tr><td><code>fetch.min.bytes</code></td><td>Broker waits until this much data is available before responding — larger values improve throughput, add latency</td></tr>
+      <tr><td><code>max.poll.records</code></td><td>Caps records per poll — tune down if per-record processing is slow, to avoid missing the poll interval and triggering a rebalance</td></tr>
+      <tr><td><code>fetch.max.wait.ms</code></td><td>Maximum time broker waits before responding even if <code>fetch.min.bytes</code> isn't met — bounds worst-case latency</td></tr>
+    </table>
+
+    <h2><span class="num">14.3</span> Broker tuning</h2>
+    <ul>
+      <li><strong>Partition count per broker</strong> — too many partitions per broker increases metadata overhead and can slow controller failover; there's a practical ceiling, not "more is always fine."</li>
+      <li><strong>Page cache</strong> — Kafka relies heavily on the OS page cache for reads; leave headroom rather than sizing the JVM heap too large and starving the cache.</li>
+      <li><strong><code>num.io.threads</code> / <code>num.network.threads</code></strong> — tune upward on brokers handling high concurrent request volume.</li>
+    </ul>
+
+    <h2><span class="num">14.4</span> The throughput vs latency dial</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 640 120" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#cfd4dc}</style>
+        <line x1="40" y1="60" x2="600" y2="60" stroke="#232a38" stroke-width="2"/>
+        <circle cx="120" cy="60" r="8" fill="#8b7bd8"/><text x="120" y="90" text-anchor="middle" class="t">linger.ms=0</text>
+        <circle cx="320" cy="60" r="8" fill="#f5a623"/><text x="320" y="90" text-anchor="middle" class="t">linger.ms=10</text>
+        <circle cx="520" cy="60" r="8" fill="#2dd4bf"/><text x="520" y="90" text-anchor="middle" class="t">linger.ms=100</text>
+        <text x="120" y="30" text-anchor="middle" class="t" fill="#8b96a8">lowest latency</text>
+        <text x="520" y="30" text-anchor="middle" class="t" fill="#8b96a8">highest throughput</text>
+      </svg>
+      <figcaption>Almost every tuning knob in this module is a point on some version of this same dial — pick the side your SLA actually cares about.</figcaption>
+    </div>
+
+    <h2><span class="num">14.5</span> Common mistakes</h2>
+    <ul>
+      <li>Enabling compression only on the producer side and forgetting brokers/consumers handle it transparently — this one's actually automatic, but teams sometimes re-compress downstream unnecessarily.</li>
+      <li>Chasing lower latency with <code>linger.ms=0</code> on a high-volume pipeline where throughput actually matters more, leaving real capacity on the table.</li>
+      <li>Sizing JVM heap too large "for safety" and starving the OS page cache Kafka depends on for fast reads.</li>
+    </ul>
+
+    <h2><span class="num">14.6</span> Summary</h2>
+    <p>Producer tuning is mostly about batching and compression; consumer tuning is about balancing poll size against processing speed; broker tuning is about not starving the OS page cache. Every setting here trades latency against throughput — tune toward whichever your actual SLA demands, not toward "faster" in the abstract.</p>
+
+    <div class="footnav">
+      <a href="13-monitoring.html">&larr; Module 13 · Monitoring</a>
+      <a class="next" href="15-docker.html">Module 15 · Docker (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
