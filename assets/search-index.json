@@ -21,5 +21,6 @@
   { "title": "Interview Preparation", "path": "modules/20-interview-prep.html", "snippet": "100+ interview questions, from architecture to scenarios." },
   { "title": "Hands-on Projects", "path": "modules/21-projects.html", "snippet": "Eight hands-on builds: chat apps, fraud detection, IoT pipelines." },
   { "title": "Troubleshooting", "path": "modules/22-troubleshooting.html", "snippet": "Diagnosing lag, rebalance storms, and broker failures." },
-  { "title": "Best Practices", "path": "modules/23-best-practices.html", "snippet": "Naming, sizing, and operating Kafka the way production teams do." }
+  { "title": "Best Practices", "path": "modules/23-best-practices.html", "snippet": "Naming, sizing, and operating Kafka the way production teams do." },
+  { "title": "ZooKeeper", "path": "modules/24-zookeeper.html", "snippet": "Coordination service used for leader election, metadata storage, and watches (used by Kafka pre-KRaft)." }
 ]

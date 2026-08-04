@@ -25,6 +25,7 @@ const MODULES = [
   { n: 21, id: "projects", title: "Hands-on Projects", group: "Reference", file: "21-projects.html" },
   { n: 22, id: "troubleshooting", title: "Troubleshooting", group: "Reference", file: "22-troubleshooting.html" },
   { n: 23, id: "best-practices", title: "Best Practices", group: "Reference", file: "23-best-practices.html" },
+  { n: 24, id: "zookeeper", title: "ZooKeeper", group: "Operations", file: "24-zookeeper.html" },
 ];
 
 function renderRail(currentN) {

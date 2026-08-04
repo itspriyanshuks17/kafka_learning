@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZooKeeper — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="icon" href="https://raw.githubusercontent.com/itspriyanshuks17/kafka_learning/main/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="https://raw.githubusercontent.com/itspriyanshuks17/kafka_learning/main/assets/favicon.svg">
+<meta name="theme-color" content="#10141c">
+<script src="../assets/search.js"></script>
+</head>
+<body data-module="24">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand">
+      <img class="site-logo" src="https://kafka.apache.org/logos/kafka-logo-tall.png" alt="Apache Kafka logo">
+      <div class="k">topic: kafka-notes</div>
+      <h1>Kafka Notes</h1>
+      <div class="sub">beginner → production, one segment at a time</div>
+    </div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+
+  <main class="main">
+    <div class="crumb">
+      <a href="../index.html">kafka-notes</a><span class="sep">/</span>
+      <span class="here">ZooKeeper</span>
+    </div>
+
+    <div class="module-badge">Module 24 of 24</div>
+    <h1 class="title">ZooKeeper — coordination for distributed systems</h1>
+
+    <p class="dek lead">ZooKeeper provides a simple, reliable coordination service used by Apache Kafka (pre-KRaft) for metadata, leader election, and cluster membership. This page answers: what ZooKeeper is, why Kafka used it, how it works, when it's required, and where it fits in an architecture. Includes diagrams and operational notes.</p>
+
+    <h2><span class="num">What</span> What is ZooKeeper?</h2>
+    <p>ZooKeeper is a distributed coordination service exposing a hierarchical namespace (similar to a filesystem) of znodes. It offers primitives for configuration, naming, leader election, and distributed synchronization. ZooKeeper guarantees sequential consistency, atomicity, and single-system image semantics.</p>
+
+    <h2><span class="num">Why</span> Why Kafka used ZooKeeper</h2>
+    <ul>
+      <li>Store broker metadata (which brokers exist, what topics/partitions live where).</li>
+      <li>Election of partition leaders: ZooKeeper helps elect controller and partition leaders.</li>
+      <li>Store controller state and configuration in a highly-available, small-data store.</li>
+      <li>Simplifies distributed coordination primitives—Kafka relied on that to avoid custom implementations.</li>
+    </ul>
+
+    <h2><span class="num">How</span> How ZooKeeper works (high level)</h2>
+    <p>ZooKeeper runs as an ensemble of odd-numbered nodes (3,5,7). Clients connect to any node. Writes go through the leader and are replicated to followers using Zab (ZooKeeper Atomic Broadcast). Reads can be served by any node (often from leader to guarantee monotonic reads).</p>
+
+    <div class="diagram">
+      <svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg">
+        <style>.lbl{font-family:'IBM Plex Sans',sans-serif;font-size:12px;fill:#cfd4dc}.node{fill:#161c27;stroke:#232a38}.lead{fill:#f5a623}</style>
+        <g>
+          <rect x="40" y="40" width="140" height="100" rx="6" class="node" stroke-width="1"/>
+          <text x="110" y="100" text-anchor="middle" class="lbl">ZooKeeper Leader</text>
+        </g>
+        <g>
+          <rect x="220" y="20" width="140" height="60" rx="6" class="node"/>
+          <text x="290" y="50" text-anchor="middle" class="lbl">Follower</text>
+          <rect x="220" y="100" width="140" height="60" rx="6" class="node"/>
+          <text x="290" y="130" text-anchor="middle" class="lbl">Follower</text>
+        </g>
+        <g>
+          <line x1="180" y1="90" x2="220" y2="50" stroke="#2dd4bf" stroke-width="1.8" />
+          <line x1="180" y1="90" x2="220" y2="130" stroke="#2dd4bf" stroke-width="1.8" />
+        </g>
+        <g>
+          <rect x="420" y="60" width="200" height="80" rx="6" class="node"/>
+          <text x="520" y="100" text-anchor="middle" class="lbl">Kafka Broker (client)</text>
+          <line x1="360" y1="90" x2="420" y2="100" stroke="#8b7bd8" stroke-width="1.2" stroke-dasharray="4 3"/>
+        </g>
+      </svg>
+      <figcaption>ZooKeeper ensemble (leader + followers). Clients connect and the leader serializes state changes.</figcaption>
+    </div>
+
+    <h2><span class="num">Where</span> Where ZooKeeper runs</h2>
+    <p>ZooKeeper should run on dedicated nodes (not co-located with heavy I/O brokers) with low-latency networking. Use an odd number of nodes (3,5) and colocate with low-latency zones. Avoid running on the same host as Kafka brokers in production to reduce coupling and blast radius.</p>
+
+    <h2><span class="num">When</span> When is ZooKeeper required</h2>
+    <p>Historically, Kafka (pre-KRaft) required ZooKeeper for metadata and leader election. Newer Kafka (KRaft mode) removes the dependency by embedding the controller inside Kafka itself. Use ZooKeeper if: running older Kafka versions or migrating from existing ZooKeeper-based clusters.</p>
+
+    <h2><span class="num">Operational workflows</span> Common operational workflows</h2>
+    <h3>Leader election (controller)</h3>
+    <p>When a controller fails, ZooKeeper coordinates a new controller election. Steps:</p>
+    <ol>
+      <li>ZooKeeper detects the controller ephemeral znode lost (session expired).</li>
+      <li>Remaining brokers attempt to create the controller znode; the successful one becomes controller.</li>
+      <li>New controller reads metadata from ZooKeeper and starts managing partition leader assignments.</li>
+    </ol>
+
+    <div class="diagram">
+      <svg viewBox="0 0 640 160" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:12px;fill:#cfd4dc}.x{stroke:#f5a623}</style>
+        <circle cx="120" cy="40" r="18" fill="#161c27" stroke="#232a38"/>
+        <text x="120" y="44" text-anchor="middle" class="t">B1</text>
+        <circle cx="220" cy="40" r="18" fill="#161c27" stroke="#232a38"/>
+        <text x="220" y="44" text-anchor="middle" class="t">B2</text>
+        <circle cx="320" cy="40" r="18" fill="#161c27" stroke="#232a38"/>
+        <text x="320" y="44" text-anchor="middle" class="t">B3</text>
+        <rect x="260" y="80" width="120" height="50" rx="6" fill="#161c27" stroke="#f5a623"/>
+        <text x="320" y="110" text-anchor="middle" class="t">ZooKeeper</text>
+        <line x1="120" y1="58" x2="290" y2="80" stroke="#2dd4bf"/>
+        <line x1="220" y1="58" x2="290" y2="80" stroke="#2dd4bf"/>
+        <line x1="320" y1="58" x2="290" y2="80" stroke="#2dd4bf"/>
+      </svg>
+      <figcaption>Controller election: brokers coordinate via ZooKeeper to elect controller.</figcaption>
+    </div>
+
+    <h3>Metadata storage and watches</h3>
+    <p>ZooKeeper stores small metadata (topic/partition assignments, config). Kafka brokers set watches on znodes and react to changes. Watches are one-time triggers — code must re-establish watches after events.</p>
+
+    <h2><span class="num">Best practices</h2>
+    <ul>
+      <li>Run ZooKeeper on 3 or 5 dedicated nodes with stable networking.</li>
+      <li>Keep ZooKeeper data small and tuned (snapshot + txn logs); avoid storing large blobs.</li>
+      <li>Monitor session expirations, Zxid growth, and leader election rate.</li>
+      <li>Plan maintenance windows; rolling restarts should be done one node at a time to preserve quorum.</li>
+      <li>For new deployments, prefer Kafka's KRaft mode to avoid ZooKeeper dependency where possible.</li>
+    </ul>
+
+    <div class="footnav">
+      <a href="../modules/23-best-practices.html">← Best Practices</a>
+      <a class="next" href="../index.html">Back to Handbook →</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
