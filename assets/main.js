@@ -61,4 +61,17 @@ function renderRail(currentN) {
 document.addEventListener("DOMContentLoaded", () => {
   const n = parseInt(document.body.getAttribute("data-module") || "0", 10);
   renderRail(n);
+  // Rail toggle for small screens
+  const toggle = document.getElementById('rail-toggle');
+  if (toggle) {
+    // initialize state from localStorage
+    const closed = localStorage.getItem('rail-closed') === '1';
+    if (closed) document.body.classList.add('rail-closed');
+    toggle.setAttribute('aria-expanded', (!closed).toString());
+    toggle.addEventListener('click', () => {
+      const isClosed = document.body.classList.toggle('rail-closed');
+      localStorage.setItem('rail-closed', isClosed ? '1' : '0');
+      toggle.setAttribute('aria-expanded', (!isClosed).toString());
+    });
+  }
 });

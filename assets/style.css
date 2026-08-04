@@ -492,3 +492,31 @@ tr:nth-child(even) td { background: rgba(255,255,255,0.012); }
   .mcard .name { font-size: 14px; }
   .mcard .desc { font-size: 13px; }
 }
+
+/* Rail toggle button */
+.rail-toggle {
+  display: none;
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 18px;
+  z-index: 40;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .rail-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  /* when rail is closed, expand main to full width */
+  body.rail-closed .shell { grid-template-columns: 1fr !important; }
+  body.rail-closed .rail { display: none !important; }
+}
+
+/* small tweak when rail present to avoid overlap */
+@media (max-width: 640px) {
+  .rail-toggle { left: 12px; top: 12px; }
+}
