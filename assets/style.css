@@ -447,3 +447,48 @@ tr:nth-child(even) td { background: rgba(255,255,255,0.012); }
 .mcard .desc { font-size: 12.5px; color: var(--text-muted); }
 .mcard.locked { opacity: 0.45; }
 .mcard.locked:hover { transform: none; border-color: var(--border); }
+
+/* Mobile / small-screen enhancements */
+@media (max-width: 900px) {
+  .rail {
+    position: sticky;
+    top: 0;
+    width: 100%;
+    height: auto;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(16,20,28,0.98), rgba(16,20,28,0.95));
+  }
+  .rail-brand {
+    padding: 0;
+    border-bottom: none;
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .rail-brand h1 { font-size: 16px; margin: 0; }
+  .rail-brand .sub { display: none; }
+  .rail-log { display: flex; gap: 8px; overflow-x: auto; padding: 8px 6px; }
+  .rail-log .segment { white-space: nowrap; padding: 8px 10px; }
+  .main { max-width: 100%; padding: 20px 16px 80px; }
+  .log-hero { padding: 36px 0 14px; }
+  .log-hero h1 { font-size: clamp(22px, 6vw, 36px); }
+  .log-hero p { max-width: 100%; }
+  .stat-row { gap: 14px; }
+  .module-grid { grid-template-columns: 1fr; gap: 12px; }
+}
+
+@media (max-width: 480px) {
+  :root { --rail-width: 220px; }
+  body { font-size: 15px; }
+  .rail-brand .k { display: none; }
+  .rail-brand h1 { font-size: 14px; }
+  .mcard .name { font-size: 14px; }
+  .mcard .desc { font-size: 13px; }
+}
