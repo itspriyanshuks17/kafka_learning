@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 7 · Topics & Partitions — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="7">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 007</span></div>
+    <div class="module-badge">Module 7 of 23</div>
+    <h1 class="title">Topics & Partitions Under Load</h1>
+    <p class="dek lead">Module 2 introduced partitions as the unit of storage. This module is about what happens to that unit under real production conditions: a broker dying mid-write, a partition count decision you can't undo, and how leader election actually resolves.</p>
+
+    <h2><span class="num">7.1</span> How partitioning actually decides where a record goes</h2>
+    <p>The producer's partitioner runs client-side, before the record ever reaches a broker: <code>partition = hash(key) % numPartitions</code> when a key is present, or a sticky round-robin batch strategy when it isn't. This means the producer — not the broker — decides partition placement, and it decides it once, at send time.</p>
+
+    <h2><span class="num">7.2</span> Replication mechanics in detail</h2>
+    <p>Once a record lands on the leader's local log, followers pull it via a fetch request — the same API consumers use, just internal to the cluster. A record is considered <strong>committed</strong> only once every broker in the ISR has replicated it. Only committed records are visible to consumers (with default isolation settings) — this is what prevents a consumer from reading data that could still disappear if the leader crashes before replication completes.</p>
+
+    <h2><span class="num">7.3</span> Leader election in detail</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 640 220" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#cfd4dc}.h{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600}</style>
+        <rect x="20" y="30" width="150" height="60" rx="4" fill="#161c27" stroke="#ef5b5b" stroke-dasharray="4 3"/>
+        <text x="95" y="55" text-anchor="middle" class="h" fill="#ef5b5b">Broker 1</text>
+        <text x="95" y="72" text-anchor="middle" class="t">LEADER — crashes</text>
+
+        <text x="95" y="115" text-anchor="middle" class="t" fill="#8b96a8">controller quorum notices missed heartbeat,</text>
+        <text x="95" y="130" text-anchor="middle" class="t" fill="#8b96a8">picks new leader from ISR</text>
+
+        <rect x="240" y="30" width="150" height="60" rx="4" fill="#161c27" stroke="#f5a623" stroke-width="1.6"/>
+        <text x="315" y="55" text-anchor="middle" class="h" fill="#f5a623">Broker 2</text>
+        <text x="315" y="72" text-anchor="middle" class="t">promoted &rarr; NEW LEADER</text>
+
+        <rect x="460" y="30" width="150" height="60" rx="4" fill="#161c27" stroke="#232a38"/>
+        <text x="535" y="55" text-anchor="middle" class="h" fill="#cfd4dc">Broker 3</text>
+        <text x="535" y="72" text-anchor="middle" class="t">remains follower</text>
+
+        <text x="320" y="180" text-anchor="middle" class="t" fill="#2dd4bf">Clients auto-discover the new leader on their next metadata refresh</text>
+        <text x="320" y="198" text-anchor="middle" class="t" fill="#8b96a8">(a brief connection error, then automatic recovery — no manual intervention)</text>
+      </svg>
+      <figcaption>Election picks only from the ISR (Module 2.8) — an out-of-sync replica is never eligible, no matter how "close" it is.</figcaption>
+    </div>
+    <p>Clients experience this as a short burst of errors on in-flight requests, followed by automatic recovery once they refresh cluster metadata and discover the new leader — no code changes or manual failover steps needed.</p>
+
+    <h2><span class="num">7.4</span> Choosing a partition count</h2>
+    <p>This decision matters because <strong>you can increase partitions later but never decrease them</strong> without deleting and recreating the topic. A rough starting formula: <code>partitions = max(desired consumer throughput / per-partition throughput, desired parallel consumers)</code>. In practice, most teams start with a number like 6–12 for a moderate-traffic topic and revisit based on real lag metrics (Module 6.5) rather than guessing far ahead.</p>
+    <div class="callout warn"><strong>The irreversible trap —</strong> increasing partitions later changes the key-to-partition hash mapping for every existing key, breaking the "same key always lands here" guarantee your consumers may depend on for ordering. Plan generously up front rather than relying on frequent increases.</div>
+
+    <h2><span class="num">7.5</span> Fault tolerance in practice</h2>
+    <p>With replication factor 3 and <code>min.insync.replicas=2</code>, a topic tolerates losing one broker entirely with zero data loss and zero downtime for producers using <code>acks=all</code> — the remaining two ISR members still satisfy the durability requirement. Losing a second broker simultaneously (dropping below <code>min.insync.replicas</code>) causes producers to receive errors rather than silently accepting under-replicated writes.</p>
+
+    <h2><span class="num">7.6</span> Common mistakes</h2>
+    <ul>
+      <li>Setting <code>min.insync.replicas</code> equal to the full replication factor — this removes all fault tolerance, since losing even one broker blocks all writes.</li>
+      <li>Under-provisioning partition count "to keep it simple," then hitting a consumer-parallelism ceiling months later that requires a disruptive topic recreation.</li>
+      <li>Assuming leader election is instantaneous — it typically takes on the order of seconds; latency-sensitive systems should design for a brief availability gap during broker failure.</li>
+    </ul>
+
+    <h2><span class="num">7.7</span> Check your understanding</h2>
+    <details class="quiz"><summary>Q1. Why can a topic's partition count be increased but not decreased?</summary><div class="a">Partitions are physical, ordered logs on disk. Removing one would mean discarding or somehow merging its ordered history into another partition, which would break both the ordering guarantee and the offset semantics consumers rely on — so Kafka simply disallows it.</div></details>
+    <details class="quiz"><summary>Q2. With replication factor 3 and min.insync.replicas=2, how many brokers can fail before acks=all producers start seeing errors?</summary><div class="a">One. Losing a second broker drops the ISR below min.insync.replicas, and acks=all producers will then receive errors rather than have their writes silently accepted with insufficient durability.</div></details>
+
+    <h2><span class="num">7.8</span> Summary</h2>
+    <p>Partitioning is decided client-side at send time; replication commits a record only once the full ISR has it; leader election automatically promotes from the ISR and clients recover transparently; and partition count is the one topic setting worth over-planning, since growing it later is easy but shrinking it isn't possible at all.</p>
+
+    <div class="footnav">
+      <a href="06-consumers.html">&larr; Module 6 · Consumers</a>
+      <a class="next" href="08-storage.html">Module 8 · Storage Internals (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
