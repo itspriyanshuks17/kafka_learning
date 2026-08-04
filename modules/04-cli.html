@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 4 · Kafka CLI — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="4">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 004</span></div>
+    <div class="module-badge">Module 4 of 23</div>
+    <h1 class="title">Kafka CLI</h1>
+    <p class="dek lead">Every script lives in <code>bin/</code> (or <code>bin\windows\</code>). All of them accept <code>--bootstrap-server host:port</code> to point at the cluster — that flag is the one thing every command below has in common.</p>
+
+    <h2><span class="num">4.1</span> Topic management</h2>
+    <pre><code><span class="tok-cmt"># create</span>
+bin/kafka-topics.sh --create --topic orders --bootstrap-server localhost:9092 \
+  --partitions 6 --replication-factor 3
+
+<span class="tok-cmt"># list</span>
+bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+
+<span class="tok-cmt"># describe — shows partition leaders, replicas, ISR</span>
+bin/kafka-topics.sh --describe --topic orders --bootstrap-server localhost:9092
+<span class="tok-cmt"># Topic: orders  PartitionCount: 6  ReplicationFactor: 3
+# Partition: 0  Leader: 1  Replicas: 1,2,3  Isr: 1,2,3
+# Partition: 1  Leader: 2  Replicas: 2,3,1  Isr: 2,3,1 ...</span>
+
+<span class="tok-cmt"># alter partition count (can only increase, never decrease)</span>
+bin/kafka-topics.sh --alter --topic orders --partitions 12 --bootstrap-server localhost:9092
+
+<span class="tok-cmt"># delete</span>
+bin/kafka-topics.sh --delete --topic orders --bootstrap-server localhost:9092</code></pre>
+
+    <h2><span class="num">4.2</span> Producing from the CLI</h2>
+    <pre><code><span class="tok-cmt"># basic</span>
+bin/kafka-console-producer.sh --topic orders --bootstrap-server localhost:9092
+
+<span class="tok-cmt"># with a key (key:value, tab-separated by default flag below)</span>
+bin/kafka-console-producer.sh --topic orders --bootstrap-server localhost:9092 \
+  --property "parse.key=true" --property "key.separator=:"
+<span class="tok-cmt">&gt; order-101:{"status":"placed"}</span></code></pre>
+
+    <h2><span class="num">4.3</span> Consuming from the CLI</h2>
+    <pre><code><span class="tok-cmt"># from the beginning of the topic</span>
+bin/kafka-console-consumer.sh --topic orders --from-beginning --bootstrap-server localhost:9092
+
+<span class="tok-cmt"># only new messages (default behavior, no --from-beginning)</span>
+bin/kafka-console-consumer.sh --topic orders --bootstrap-server localhost:9092
+
+<span class="tok-cmt"># show keys too</span>
+bin/kafka-console-consumer.sh --topic orders --from-beginning --bootstrap-server localhost:9092 \
+  --property print.key=true --property key.separator=" : "</code></pre>
+
+    <h2><span class="num">4.4</span> Consumer group inspection</h2>
+    <pre><code><span class="tok-cmt"># list all groups</span>
+bin/kafka-consumer-groups.sh --list --bootstrap-server localhost:9092
+
+<span class="tok-cmt"># describe a group — shows lag per partition (the single most-used ops command)</span>
+bin/kafka-consumer-groups.sh --describe --group fraud-detector --bootstrap-server localhost:9092
+<span class="tok-cmt"># GROUP           TOPIC   PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
+# fraud-detector  orders  0          10482           10501           19
+# fraud-detector  orders  1          9921            9921            0</span>
+
+<span class="tok-cmt"># reset offsets to earliest for a group (consumers in that group must be stopped first)</span>
+bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group fraud-detector \
+  --topic orders --reset-offsets --to-earliest --execute</code></pre>
+
+    <h2><span class="num">4.5</span> Broker &amp; cluster info</h2>
+    <pre><code><span class="tok-cmt"># cluster metadata (KRaft mode)</span>
+bin/kafka-metadata-quorum.sh --bootstrap-server localhost:9092 describe --status
+
+<span class="tok-cmt"># per-broker config</span>
+bin/kafka-configs.sh --bootstrap-server localhost:9092 --entity-type brokers --entity-name 1 --describe</code></pre>
+
+    <h2><span class="num">4.6</span> Common mistakes</h2>
+    <ul>
+      <li>Running <code>--reset-offsets</code> without <code>--execute</code> — it defaults to a dry run, prints the plan, and changes nothing. Easy to think it worked when it didn't.</li>
+      <li>Forgetting consumers must be stopped (group must have no active members) before resetting offsets — otherwise the command errors out.</li>
+      <li>Using the console producer/consumer for anything beyond quick manual testing — they're debugging tools, not a substitute for a real client (Modules 5–6).</li>
+    </ul>
+
+    <h2><span class="num">4.7</span> Summary</h2>
+    <p>Five scripts cover 90% of daily Kafka operations: <code>kafka-topics.sh</code> for topic management, <code>kafka-console-producer/consumer.sh</code> for manual testing, and <code>kafka-consumer-groups.sh</code> for the single most important operational task — watching consumer lag.</p>
+
+    <div class="footnav">
+      <a href="03-installation.html">&larr; Module 3 · Installation</a>
+      <a class="next" href="05-producers.html">Module 5 · Producers (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
