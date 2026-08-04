@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 19 · Microservices — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="19">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 019</span></div>
+    <div class="module-badge">Module 19 of 23</div>
+    <h1 class="title">Kafka in Microservices</h1>
+    <p class="dek lead">Four patterns come up in almost every serious microservices system built around Kafka. Each solves a specific failure mode that shows up once you stop using a single database transaction to hold everything together.</p>
+
+    <h2><span class="num">19.1</span> The Saga pattern</h2>
+    <p>A single business transaction (placing an order) now spans multiple services (inventory, payment, shipping) with no shared database transaction. A <strong>saga</strong> coordinates this as a sequence of local transactions, each publishing an event that triggers the next step — and if any step fails, publishing compensating events that undo the prior steps.</p>
+    <div class="diagram">
+      <svg viewBox="0 0 640 160" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:10.5px;fill:#cfd4dc}</style>
+        <rect x="20" y="60" width="110" height="40" fill="#161c27" stroke="#2dd4bf"/><text x="75" y="84" text-anchor="middle" class="t">OrderCreated</text>
+        <rect x="170" y="60" width="110" height="40" fill="#161c27" stroke="#2dd4bf"/><text x="225" y="84" text-anchor="middle" class="t">InventoryReserved</text>
+        <rect x="320" y="60" width="110" height="40" fill="#161c27" stroke="#ef5b5b"/><text x="375" y="84" text-anchor="middle" class="t" fill="#ef5b5b">PaymentFailed</text>
+        <rect x="470" y="60" width="150" height="40" fill="#161c27" stroke="#f5a623"/><text x="545" y="84" text-anchor="middle" class="t" fill="#f5a623">InventoryReleased (compensating)</text>
+        <line x1="130" y1="80" x2="170" y2="80" stroke="#2dd4bf"/>
+        <line x1="280" y1="80" x2="320" y2="80" stroke="#2dd4bf"/>
+        <line x1="430" y1="80" x2="470" y2="80" stroke="#ef5b5b"/>
+      </svg>
+      <figcaption>Each arrow is a Kafka event — the saga's state lives in the sequence of events, not in a central coordinator's database row.</figcaption>
+    </div>
+    <p>The <strong>choreography</strong> style shown above lets each service react to events independently; an <strong>orchestration</strong> style instead has a central saga coordinator explicitly telling each service what to do next — a trade-off between decentralization and traceability.</p>
+
+    <h2><span class="num">19.2</span> CQRS (Command Query Responsibility Segregation)</h2>
+    <p>Separates the model used to <em>write</em> data (commands) from the model used to <em>read</em> it (queries). Kafka is the natural glue: a write updates the source-of-truth service and publishes an event; a Kafka Streams job or Connect sink (Modules 9–10) projects that event into one or more read-optimized views — a search index, a denormalized cache, a reporting table — each shaped for its specific query pattern.</p>
+
+    <h2><span class="num">19.3</span> Event Sourcing</h2>
+    <p>Instead of storing current state directly, the system stores the full sequence of events that produced it — the log itself <em>is</em> the system of record. Current state is derived by replaying events (exactly the compaction/KTable mechanism from Modules 8.3 and 10.1). This gives you a complete audit trail for free and the ability to rebuild any projection from scratch just by replaying history.</p>
+
+    <h2><span class="num">19.4</span> The Outbox pattern</h2>
+    <p>A classic bug: a service updates its own database and separately publishes a Kafka event — but a crash between the two steps leaves the database updated with no event ever published (or vice versa). The <strong>outbox pattern</strong> fixes this by writing the event into an "outbox" table in the <em>same local database transaction</em> as the business update, then using Kafka Connect's Debezium CDC source connector (Module 9.3) to stream that outbox table into Kafka — guaranteeing the event is published if and only if the business transaction committed.</p>
+    <div class="callout tip"><strong>Why this matters —</strong> the outbox pattern is what actually closes the "dual write" gap that a naive "update DB, then call producer.send()" approach leaves open, without needing distributed transactions across the database and Kafka.</div>
+
+    <h2><span class="num">19.5</span> Common mistakes</h2>
+    <ul>
+      <li>Implementing a saga without compensating actions for every step that can fail — a partial failure then leaves the system in a permanently inconsistent state.</li>
+      <li>Choosing orchestration for its clearer traceability, then building a single point of failure into the orchestrator without realizing it.</li>
+      <li>Skipping the outbox pattern and hitting the classic dual-write bug under real production failure conditions (the crash always happens at the worst possible moment).</li>
+    </ul>
+
+    <h2><span class="num">19.6</span> Check your understanding</h2>
+    <details class="quiz"><summary>Q1. What specific bug does the outbox pattern prevent that a plain "write to DB, then call producer.send()" doesn't?</summary><div class="a">A crash between the database write and the Kafka send leaves the two systems inconsistent — the DB update happened but the event never published, or vice versa. Writing the event to an outbox table in the same DB transaction, then streaming that table via CDC, guarantees the event is published exactly when the business transaction commits.</div></details>
+
+    <h2><span class="num">19.7</span> Summary</h2>
+    <p>Sagas coordinate multi-service transactions through events plus compensating actions; CQRS uses Kafka to project one source of truth into many read-optimized views; event sourcing makes the log itself the system of record; and the outbox pattern closes the dual-write gap between a local database and Kafka. All four patterns lean on properties already covered — ordering, compaction, and replay — introduced in earlier modules.</p>
+
+    <div class="footnav">
+      <a href="18-spring-boot.html">&larr; Module 18 · Spring Boot</a>
+      <a class="next" href="20-interview-prep.html">Module 20 · Interview Preparation (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
