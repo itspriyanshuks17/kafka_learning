@@ -520,3 +520,4 @@ tr:nth-child(even) td { background: rgba(255,255,255,0.012); }
 @media (max-width: 640px) {
   .rail-toggle { left: 12px; top: 12px; }
 }
+
