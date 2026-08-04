@@ -101,6 +101,14 @@ code, pre, .mono { font-family: var(--mono); }
   margin-bottom: 18px;
 }
 
+.site-logo {
+  width: 36px;
+  height: auto;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 10px;
+}
+
 .rail-brand .k {
   font-family: var(--mono);
   font-size: 13px;
