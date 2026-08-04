@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kafka Notes — The Handbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-module="0">
+<div class="shell">
+
+  <nav class="rail">
+    <div class="rail-brand">
+      <div class="k">topic: kafka-notes</div>
+      <h1>Kafka Notes</h1>
+      <div class="sub">beginner &rarr; production, one segment at a time</div>
+    </div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+
+  <main class="main" style="max-width: 980px;">
+    <section class="log-hero">
+      <div class="eyebrow">partition 0 · replication factor 3 · retention: forever</div>
+      <h1>A handbook, appended&nbsp;like&nbsp;a&nbsp;log.</h1>
+      <p>Apache Kafka never overwrites, never reorders, never forgets — it just appends. This handbook works the same way: 23 modules, written in order, each one a durable record you can always come back to. Beginner to production-grade, no skipped offsets.</p>
+      <div class="stat-row">
+        <div class="stat"><div class="n">23</div><div class="l">MODULES</div></div>
+        <div class="stat"><div class="n">23 / 23</div><div class="l">PUBLISHED</div></div>
+        <div class="stat"><div class="n">Java + Python</div><div class="l">CODE EXAMPLES</div></div>
+        <div class="stat"><div class="n">80</div><div class="l">INTERVIEW Qs (Mod 20)</div></div>
+      </div>
+    </section>
+
+    <div class="module-grid" id="grid-mount"></div>
+  </main>
+</div>
+
+<script src="assets/main.js"></script>
+<script>
+  function renderGrid() {
+    const mount = document.getElementById("grid-mount");
+    const descs = {
+      introduction: "What Kafka is, the problems it solves, and how it compares to queues and pub/sub systems.",
+      architecture: "Brokers, partitions, offsets, replication, ISR, and the KRaft vs ZooKeeper story.",
+      installation: "Standing up Kafka locally, in Docker, and in KRaft mode.",
+      cli: "Every kafka-*.sh command you'll actually use, with real output.",
+      producers: "Serialization, partitioning, acks, idempotence, and transactions.",
+      consumers: "Consumer groups, offset commits, rebalancing, and lag.",
+      "topics-partitions": "How partitioning and leader election actually work under load.",
+      storage: "Log segments, retention, and compaction — Kafka's storage engine.",
+      connect: "Source and sink connectors: JDBC, Elasticsearch, S3.",
+      streams: "KTables, windowing, joins, and stream-table duality.",
+      "schema-registry": "Avro/Protobuf/JSON schemas and compatibility modes.",
+      security: "SSL, SASL, ACLs, and encryption in transit and at rest.",
+      monitoring: "JMX metrics, Prometheus exporters, and Grafana dashboards.",
+      performance: "Tuning producers, consumers, and brokers for throughput or latency.",
+      docker: "Multi-broker clusters with Docker Compose and persistent volumes.",
+      kubernetes: "Running Kafka on K8s with Strimzi operators and Helm.",
+      "aws-msk": "Amazon MSK, IAM auth, scaling, and monitoring in AWS.",
+      "spring-boot": "Producers and consumers in Spring Boot, with error handling.",
+      microservices: "Saga, CQRS, event sourcing, and the outbox pattern.",
+      "interview-prep": "100+ interview questions, from architecture to scenarios.",
+      projects: "Eight hands-on builds: chat apps, fraud detection, IoT pipelines.",
+      troubleshooting: "Diagnosing lag, rebalance storms, and broker failures.",
+      "best-practices": "Naming, sizing, and operating Kafka the way production teams do."
+    };
+    let html = "";
+    MODULES.forEach(m => {
+      const offset = String(m.n).padStart(3, "0");
+      const locked = !m.file;
+      html += `<a class="mcard ${locked ? 'locked' : ''}" href="${m.file ? 'modules/' + m.file : '#'}">
+        <div class="offset">offset ${offset}</div>
+        <div class="name">${m.title}</div>
+        <div class="desc">${descs[m.id] || ""}</div>
+      </a>`;
+    });
+    mount.innerHTML = html;
+  }
+  renderGrid();
+</script>
+</body>
+</html>
