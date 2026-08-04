@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 2 · Architecture — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="2">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand">
+      <div class="k">topic: kafka-notes</div>
+      <h1>Kafka Notes</h1>
+      <div class="sub">beginner &rarr; production, one segment at a time</div>
+    </div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+
+  <main class="main">
+    <div class="crumb">
+      <a href="../index.html">kafka-notes</a><span class="sep">/</span>
+      <span class="here">partition-0 · offset 002</span>
+    </div>
+
+    <div class="module-badge">Module 2 of 23</div>
+    <h1 class="title">Kafka Architecture</h1>
+    <p class="dek lead">Module 1 called Kafka "a distributed, append-only log." This module opens that phrase up piece by piece: what a broker actually is, how a topic gets split and copied across a cluster, and how the cluster keeps agreeing on the truth even when machines die mid-write.</p>
+
+    <h2><span class="num">2.1</span> The cluster at a glance</h2>
+    <p>A Kafka deployment is called a <strong>cluster</strong> — a set of server processes called <strong>brokers</strong> working together. Producers write to the cluster; consumers read from it; the cluster itself handles replication, failover, and ordering guarantees underneath.</p>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg">
+        <style>
+          .t{font-family:'IBM Plex Mono',monospace;font-size:11.5px;fill:#cfd4dc}
+          .h{font-family:'IBM Plex Mono',monospace;font-size:12.5px;fill:#f5a623;font-weight:600}
+          .arr{stroke:#2dd4bf;stroke-width:1.6}
+        </style>
+        <defs>
+          <marker id="a2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 z" fill="#2dd4bf"/>
+          </marker>
+        </defs>
+
+        <circle cx="60" cy="150" r="30" fill="#161c27" stroke="#f5a623"/>
+        <text x="60" y="154" text-anchor="middle" class="t" fill="#f5a623">Producer</text>
+        <line x1="90" y1="150" x2="170" y2="150" class="arr" marker-end="url(#a2)"/>
+
+        <rect x="175" y="50" width="330" height="210" rx="6" fill="none" stroke="#232a38" stroke-dasharray="4 3"/>
+        <text x="340" y="38" text-anchor="middle" class="h">Kafka Cluster</text>
+
+        <rect x="195" y="70" width="90" height="60" rx="3" fill="#10141c" stroke="#232a38"/>
+        <text x="240" y="95" text-anchor="middle" class="t">Broker 1</text>
+        <text x="240" y="112" text-anchor="middle" class="t" fill="#8b96a8" font-size="10">P0 leader</text>
+
+        <rect x="300" y="70" width="90" height="60" rx="3" fill="#10141c" stroke="#232a38"/>
+        <text x="345" y="95" text-anchor="middle" class="t">Broker 2</text>
+        <text x="345" y="112" text-anchor="middle" class="t" fill="#8b96a8" font-size="10">P1 leader</text>
+
+        <rect x="405" y="70" width="90" height="60" rx="3" fill="#10141c" stroke="#232a38"/>
+        <text x="450" y="95" text-anchor="middle" class="t">Broker 3</text>
+        <text x="450" y="112" text-anchor="middle" class="t" fill="#8b96a8" font-size="10">P2 leader</text>
+
+        <rect x="195" y="150" width="300" height="90" rx="3" fill="#161c27" stroke="#232a38"/>
+        <text x="345" y="170" text-anchor="middle" class="t" fill="#f5a623">topic: order-events</text>
+        <text x="240" y="195" text-anchor="middle" class="t" font-size="10">Partition 0</text>
+        <text x="345" y="195" text-anchor="middle" class="t" font-size="10">Partition 1</text>
+        <text x="450" y="195" text-anchor="middle" class="t" font-size="10">Partition 2</text>
+        <text x="345" y="222" text-anchor="middle" class="t" fill="#8b96a8" font-size="10">replicated across all 3 brokers</text>
+
+        <line x1="505" y1="150" x2="590" y2="150" class="arr" marker-end="url(#a2)"/>
+        <circle cx="620" cy="150" r="30" fill="#161c27" stroke="#8b7bd8"/>
+        <text x="620" y="154" text-anchor="middle" class="t" fill="#8b7bd8">Consumer</text>
+      </svg>
+      <figcaption>One topic, three partitions, spread across three brokers — each broker leads at least one partition and holds replicas of the others.</figcaption>
+    </div>
+
+    <h2><span class="num">2.2</span> Brokers</h2>
+    <p>A <strong>broker</strong> is a single Kafka server process. It accepts writes from producers, serves reads to consumers, and stores partition data on its local disk. Each broker has a unique numeric ID. A production cluster typically runs 3, 5, or more brokers — never one, since that would remove the durability Kafka is built for.</p>
+    <p>Brokers are largely stateless about <em>which</em> data they hold in the sense that partition assignment can move between brokers (during rebalancing or when a broker joins/leaves) — but at any moment, each broker knows exactly which partitions it currently leads or replicates, and that assignment is tracked centrally (via KRaft's controller quorum, covered in 2.9).</p>
+
+    <h2><span class="num">2.3</span> Topics &amp; Partitions</h2>
+    <p>A <strong>topic</strong> is a named stream of events — <code>order-events</code>, <code>payment-events</code>, <code>click-stream</code>. It's a logical category, not a physical file. Under the hood, every topic is split into one or more <strong>partitions</strong>, and it's the partition — not the topic — that is the actual physical, ordered, append-only log.</p>
+
+    <div class="diagram">
+      <svg viewBox="0 0 640 200" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#cfd4dc}.h{font-family:'IBM Plex Mono',monospace;font-size:12px;fill:#f5a623;font-weight:600}</style>
+        <text x="20" y="24" class="h">Partition 0</text>
+        <g>
+          <rect x="20" y="34" width="44" height="34" fill="#2dd4bf"/><text x="42" y="55" text-anchor="middle" class="t" fill="#0a0d12">0</text>
+          <rect x="64" y="34" width="44" height="34" fill="#26bfab"/><text x="86" y="55" text-anchor="middle" class="t" fill="#0a0d12">1</text>
+          <rect x="108" y="34" width="44" height="34" fill="#1c8f80"/><text x="130" y="55" text-anchor="middle" class="t" fill="#0a0d12">2</text>
+          <rect x="152" y="34" width="44" height="34" fill="#161c27" stroke="#2dd4bf" stroke-dasharray="3 2"/><text x="174" y="55" text-anchor="middle" class="t">3</text>
+        </g>
+        <text x="220" y="55" class="t" fill="#8b96a8">&larr; new writes append here (offset 3, growing)</text>
+
+        <text x="20" y="104" class="h">Partition 1</text>
+        <g>
+          <rect x="20" y="114" width="44" height="34" fill="#2dd4bf"/><text x="42" y="135" text-anchor="middle" class="t" fill="#0a0d12">0</text>
+          <rect x="64" y="114" width="44" height="34" fill="#26bfab"/><text x="86" y="135" text-anchor="middle" class="t" fill="#0a0d12">1</text>
+          <rect x="108" y="114" width="44" height="34" fill="#161c27" stroke="#2dd4bf" stroke-dasharray="3 2"/><text x="130" y="135" text-anchor="middle" class="t">2</text>
+        </g>
+        <text x="220" y="135" class="t" fill="#8b96a8">&larr; independent log, own offsets, no ordering vs Partition 0</text>
+      </svg>
+      <figcaption>Each partition is its own ordered, numbered sequence. Numbers shown are offsets — position within that partition, not global IDs.</figcaption>
+    </div>
+
+    <p>Why split a topic into partitions at all? Two reasons:</p>
+    <ul>
+      <li><strong>Parallelism</strong> — a topic with 12 partitions can be read by up to 12 consumers in the same group simultaneously, each handling a slice independently.</li>
+      <li><strong>Scalability</strong> — partitions can live on different brokers, so a single topic's total throughput isn't capped by one machine's disk or network.</li>
+    </ul>
+    <div class="callout warn">
+      <strong>Trade-off —</strong> ordering is only guaranteed <em>within</em> a partition, never across partitions of the same topic. If two events must be strictly ordered relative to each other, they must be written to the same partition — which is exactly what a message <strong>key</strong> is for (Module 5).
+    </div>
+
+    <h2><span class="num">2.4</span> Offsets</h2>
+    <p>An <strong>offset</strong> is simply the position of a record within its partition — a monotonically increasing integer starting at 0. Offsets are per-partition, not per-topic and not global. Offset 5 in Partition 0 and offset 5 in Partition 1 are two completely unrelated records.</p>
+    <p>Critically, <strong>the broker does not track what a consumer has read</strong> — the consumer does, by committing the offset it has processed up to. This is the "dumb broker, smart consumer" design from Module 1, and it's what lets Kafka support replay: a consumer can simply reset its committed offset backward and re-read history.</p>
+
+    <h2><span class="num">2.5</span> Producers &amp; Consumers (preview)</h2>
+    <p>Two client roles interact with the cluster — full detail lives in their own modules, but the shape here:</p>
+    <ul>
+      <li><strong>Producers</strong> (Module 5) write records to a topic. A producer decides, via a partitioner, which partition each record lands in.</li>
+      <li><strong>Consumers</strong> (Module 6) read records from one or more partitions, tracking their own offset, usually organized into <strong>consumer groups</strong> for parallel, coordinated reading.</li>
+    </ul>
+
+    <h2><span class="num">2.6</span> Consumer Groups</h2>
+    <p>A <strong>consumer group</strong> is a named set of consumer instances that split up a topic's partitions between them so each partition is read by exactly one consumer in that group at a time. This is what gives you horizontal read scaling: 6 partitions with 3 consumers in a group means each consumer handles 2 partitions. Add a 4th consumer and Kafka rebalances so work is spread across 4 instead.</p>
+    <div class="callout tip"><strong>Rule to memorize —</strong> a partition can be read by only one consumer within a given group at any moment, but the same partition can be read simultaneously by consumers in a <em>different</em> group. This is exactly the queue-vs-pubsub duality from Module 1.8.</div>
+
+    <h2><span class="num">2.7</span> Replication: Leaders &amp; Followers</h2>
+    <p>Every partition is replicated across multiple brokers for fault tolerance, controlled by the topic's <strong>replication factor</strong> (commonly 3 in production). Among the replicas of a given partition, exactly one broker is elected the <strong>leader</strong>; the rest are <strong>followers</strong>.</p>
+    <ul>
+      <li>All reads and writes for that partition go through the <strong>leader</strong> — clients never talk to followers directly for a partition they don't lead.</li>
+      <li><strong>Followers</strong> continuously fetch and replicate the leader's log, staying ready to take over instantly if the leader fails.</li>
+      <li>If the leader broker crashes, one of the in-sync followers is promoted to leader automatically — this is what makes Kafka tolerate broker failure without data loss or downtime for that partition.</li>
+    </ul>
+
+    <div class="diagram">
+      <svg viewBox="0 0 640 220" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#cfd4dc}.h{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600}</style>
+        <rect x="20" y="70" width="150" height="70" rx="4" fill="#161c27" stroke="#f5a623" stroke-width="1.6"/>
+        <text x="95" y="100" text-anchor="middle" class="h" fill="#f5a623">Broker 1</text>
+        <text x="95" y="120" text-anchor="middle" class="t">Partition 0 — LEADER</text>
+
+        <line x1="170" y1="90" x2="260" y2="60" stroke="#2dd4bf"/>
+        <line x1="170" y1="120" x2="260" y2="160" stroke="#2dd4bf"/>
+
+        <rect x="260" y="20" width="150" height="70" rx="4" fill="#10141c" stroke="#232a38"/>
+        <text x="335" y="50" text-anchor="middle" class="h" fill="#cfd4dc">Broker 2</text>
+        <text x="335" y="70" text-anchor="middle" class="t">Partition 0 — follower (in-sync)</text>
+
+        <rect x="260" y="130" width="150" height="70" rx="4" fill="#10141c" stroke="#232a38"/>
+        <text x="335" y="160" text-anchor="middle" class="h" fill="#cfd4dc">Broker 3</text>
+        <text x="335" y="180" text-anchor="middle" class="t">Partition 0 — follower (in-sync)</text>
+
+        <text x="500" y="60" class="t" fill="#8b96a8">producers &amp;</text>
+        <text x="500" y="76" class="t" fill="#8b96a8">consumers only</text>
+        <text x="500" y="92" class="t" fill="#8b96a8">talk to the leader</text>
+        <line x1="0" y1="105" x2="20" y2="105" stroke="none"/>
+      </svg>
+      <figcaption>Leader handles all client traffic for Partition 0; followers replicate silently and stand by to be promoted.</figcaption>
+    </div>
+
+    <h2><span class="num">2.8</span> In-Sync Replicas (ISR)</h2>
+    <p>The <strong>ISR</strong> (In-Sync Replica set) is the list of replicas — leader plus followers — that are fully caught up with the leader's log within a configurable time bound (<code>replica.lag.time.max.ms</code>). Only replicas in the ISR are eligible for leader election.</p>
+    <p>A follower that falls behind (slow disk, network partition, GC pause) is dropped from the ISR. It keeps trying to catch up in the background, but until it does, it cannot be promoted to leader — this is exactly what prevents a lagging replica from being elected leader and silently losing acknowledged data.</p>
+
+    <div class="diagram">
+      <svg viewBox="0 0 640 160" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#cfd4dc}</style>
+        <rect x="20" y="20" width="180" height="110" rx="5" fill="#161c27" stroke="#2dd4bf"/>
+        <text x="110" y="42" text-anchor="middle" class="t" fill="#2dd4bf">ISR (in-sync)</text>
+        <text x="110" y="66" text-anchor="middle" class="t">Broker 1 (leader)</text>
+        <text x="110" y="86" text-anchor="middle" class="t">Broker 2 (follower)</text>
+        <text x="110" y="106" text-anchor="middle" class="t" fill="#8b96a8">both eligible for election</text>
+
+        <rect x="240" y="20" width="180" height="110" rx="5" fill="#161c27" stroke="#ef5b5b" stroke-dasharray="4 3"/>
+        <text x="330" y="42" text-anchor="middle" class="t" fill="#ef5b5b">Out of ISR</text>
+        <text x="330" y="66" text-anchor="middle" class="t">Broker 3 (follower)</text>
+        <text x="330" y="86" text-anchor="middle" class="t" fill="#8b96a8">lagging &gt; replica.lag.time.max.ms</text>
+        <text x="330" y="106" text-anchor="middle" class="t" fill="#8b96a8">not eligible until caught up</text>
+      </svg>
+      <figcaption>Only ISR members can become leader — this is the guarantee behind <code>acks=all</code> in Module 5.</figcaption>
+    </div>
+
+    <h2><span class="num">2.9</span> ZooKeeper vs KRaft</h2>
+    <p>Someone has to track cluster metadata: which brokers exist, which partition each broker leads, and who's allowed to become leader next. For most of Kafka's life, that job belonged to <strong>Apache ZooKeeper</strong>, a separate distributed coordination system Kafka depended on.</p>
+    <table>
+      <tr><th></th><th>ZooKeeper mode (legacy)</th><th>KRaft mode (current)</th></tr>
+      <tr><td>What it is</td><td>A separate ZooKeeper ensemble stores cluster metadata</td><td>Kafka brokers themselves run a Raft-based controller quorum — no external system</td></tr>
+      <tr><td>Operational cost</td><td>Two systems to deploy, monitor, upgrade, and secure</td><td>One system — simpler ops, faster startup, fewer moving parts</td></tr>
+      <tr><td>Scalability limits</td><td>Metadata operations bottleneck at large partition counts (10,000s+)</td><td>Designed to scale to millions of partitions</td></tr>
+      <tr><td>Status (as of Kafka 4.0)</td><td>Deprecated — not available for new clusters</td><td>Default and required for new clusters</td></tr>
+    </table>
+    <div class="callout">
+      <strong>For this handbook —</strong> every install and config example from Module 3 onward assumes <strong>KRaft mode</strong>, since that's what any new cluster you build today will use.
+    </div>
+
+    <h2><span class="num">2.10</span> Putting it all together</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 680 320" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:10.5px;fill:#cfd4dc}.h{font-family:'IBM Plex Mono',monospace;font-size:12px;fill:#f5a623;font-weight:600}</style>
+        <rect x="30" y="20" width="620" height="280" rx="6" fill="none" stroke="#232a38" stroke-dasharray="4 3"/>
+        <text x="340" y="14" text-anchor="middle" class="h">Kafka Cluster (KRaft mode)</text>
+
+        <rect x="60" y="50" width="170" height="100" rx="4" fill="#10141c" stroke="#f5a623"/>
+        <text x="145" y="70" text-anchor="middle" class="t" fill="#f5a623">Broker 1 (+ controller)</text>
+        <text x="145" y="92" text-anchor="middle" class="t">P0 leader</text>
+        <text x="145" y="108" text-anchor="middle" class="t">P1 follower</text>
+        <text x="145" y="124" text-anchor="middle" class="t">P2 follower</text>
+
+        <rect x="255" y="50" width="170" height="100" rx="4" fill="#10141c" stroke="#232a38"/>
+        <text x="340" y="70" text-anchor="middle" class="t" fill="#cfd4dc">Broker 2 (+ controller)</text>
+        <text x="340" y="92" text-anchor="middle" class="t">P0 follower</text>
+        <text x="340" y="108" text-anchor="middle" class="t">P1 leader</text>
+        <text x="340" y="124" text-anchor="middle" class="t">P2 follower</text>
+
+        <rect x="450" y="50" width="170" height="100" rx="4" fill="#10141c" stroke="#232a38"/>
+        <text x="535" y="70" text-anchor="middle" class="t" fill="#cfd4dc">Broker 3 (+ controller)</text>
+        <text x="535" y="92" text-anchor="middle" class="t">P0 follower</text>
+        <text x="535" y="108" text-anchor="middle" class="t">P1 follower</text>
+        <text x="535" y="124" text-anchor="middle" class="t">P2 leader</text>
+
+        <rect x="130" y="190" width="420" height="50" rx="4" fill="#161c27" stroke="#2dd4bf"/>
+        <text x="340" y="220" text-anchor="middle" class="t" fill="#2dd4bf">topic: order-events — Partitions P0, P1, P2, replication factor 3</text>
+
+        <rect x="70" y="260" width="160" height="34" rx="3" fill="#161c27" stroke="#8b7bd8"/>
+        <text x="150" y="282" text-anchor="middle" class="t" fill="#8b7bd8">Consumer Group A</text>
+        <rect x="450" y="260" width="160" height="34" rx="3" fill="#161c27" stroke="#8b7bd8"/>
+        <text x="530" y="282" text-anchor="middle" class="t" fill="#8b7bd8">Consumer Group B</text>
+      </svg>
+      <figcaption>Leadership is spread evenly across brokers — no single broker leads everything, so load balances naturally as partitions are added.</figcaption>
+    </div>
+
+    <h2><span class="num">2.11</span> Common mistakes</h2>
+    <ul>
+      <li>Assuming more partitions is always better — more partitions means more open file handles, more replication traffic, and slower leader elections; it's a real trade-off, detailed in Module 14.</li>
+      <li>Setting replication factor to 1 in production "to save resources" — this means any single broker failure loses that partition's data entirely.</li>
+      <li>Confusing "in-sync" with "alive" — a follower can be alive and connected but still out of the ISR if it's lagging.</li>
+      <li>Expecting ZooKeeper documentation/tutorials to apply to a new cluster — as of Kafka 4.0, new clusters use KRaft only.</li>
+    </ul>
+
+    <h2><span class="num">2.12</span> Check your understanding</h2>
+    <details class="quiz">
+      <summary>Q1. If a topic has 6 partitions and a consumer group has 8 consumer instances, what happens to the 2 extra consumers?</summary>
+      <div class="a">They sit idle. A partition can only be read by one consumer per group at a time, so with 6 partitions the maximum useful parallelism in one group is 6 consumers — the other 2 get no partitions assigned.</div>
+    </details>
+    <details class="quiz">
+      <summary>Q2. A follower replica is alive and connected, but hasn't replicated the last 10 seconds of writes due to a disk slowdown. Can it become the new leader if the current leader crashes right now?</summary>
+      <div class="a">No — if it has fallen behind past replica.lag.time.max.ms, it has been removed from the ISR, and only ISR members are eligible for leader election. Promoting it would silently lose acknowledged data.</div>
+    </details>
+    <details class="quiz">
+      <summary>Q3. What single component did KRaft mode remove from a Kafka deployment, and what did it replace it with?</summary>
+      <div class="a">It removed the external Apache ZooKeeper ensemble and replaced it with a built-in Raft-based controller quorum running on the brokers themselves.</div>
+    </details>
+
+    <h2><span class="num">2.13</span> Summary</h2>
+    <p>A Kafka cluster is a set of brokers; each topic is split into partitions, which are the real unit of storage, parallelism, and ordering. Every partition has one leader and zero or more in-sync followers, and only ISR members can be promoted on failure. Consumer groups divide up partitions for parallel, coordinated reading. KRaft mode has replaced ZooKeeper as the system that keeps all of this metadata consistent across the cluster.</p>
+
+    <div class="footnav">
+      <a href="01-introduction.html">&larr; Module 1 · Introduction</a>
+      <a class="next" href="03-installation.html">Module 3 · Installation (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
