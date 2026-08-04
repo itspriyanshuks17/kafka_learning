@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 20 · Interview Prep — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="20">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 020</span></div>
+    <div class="module-badge">Module 20 of 23</div>
+    <h1 class="title">Interview Preparation</h1>
+    <p class="dek lead">80 questions across 9 categories, pulled directly from the concepts in Modules 1–19. Click any question to reveal the answer — try answering out loud first, the way you would in a real round.</p>
+
+    <h2><span class="num">20.1</span> Fundamentals &amp; core concepts</h2>
+    <details class="quiz"><summary>What is Apache Kafka, in one sentence?</summary><div class="a">A distributed, append-only commit log platform for publishing, storing, and processing streams of events at scale.</div></details>
+    <details class="quiz"><summary>Why is Kafka called a "commit log" rather than a message queue?</summary><div class="a">Because records aren't removed once consumed — they're retained per a policy and can be replayed from any offset, unlike a traditional queue.</div></details>
+    <details class="quiz"><summary>What's the single biggest architectural difference between Kafka and RabbitMQ?</summary><div class="a">RabbitMQ (smart broker, dumb consumer) tracks delivery state itself; Kafka (dumb broker, smart consumer) has each consumer track its own offset.</div></details>
+    <details class="quiz"><summary>What is a topic, and is it a physical file?</summary><div class="a">A topic is a logical named stream of events. It has no single physical file — it's split into partitions, which are the actual physical logs.</div></details>
+    <details class="quiz"><summary>What is a partition?</summary><div class="a">An ordered, immutable, append-only sequence of records — the actual unit of storage, parallelism, and ordering in Kafka.</div></details>
+    <details class="quiz"><summary>What is an offset?</summary><div class="a">A per-partition, monotonically increasing integer marking a record's position within that partition.</div></details>
+    <details class="quiz"><summary>Does Kafka guarantee ordering across an entire topic?</summary><div class="a">No — only within a single partition. Cross-partition ordering isn't guaranteed.</div></details>
+    <details class="quiz"><summary>What is a consumer group?</summary><div class="a">A named set of consumers that split a topic's partitions between them so each partition is read by exactly one consumer in that group at a time.</div></details>
+    <details class="quiz"><summary>How does Kafka implement both queue and pub/sub semantics on the same topic?</summary><div class="a">Multiple consumers in one group behave like a queue (each message processed once); multiple independent consumer groups each get a full copy — pub/sub.</div></details>
+    <details class="quiz"><summary>What replaced ZooKeeper in modern Kafka, and why?</summary><div class="a">KRaft mode — a built-in Raft-based controller quorum — replaced it to remove an external dependency and scale to far more partitions.</div></details>
+
+    <h2><span class="num">20.2</span> Architecture &amp; internals</h2>
+    <details class="quiz"><summary>What is a broker?</summary><div class="a">A single Kafka server process that stores partition data and serves producer/consumer requests.</div></details>
+    <details class="quiz"><summary>What is a replica, and what's the difference between a leader and a follower replica?</summary><div class="a">A replica is a copy of a partition on a broker. The leader handles all client reads/writes; followers passively replicate the leader's log and stand by for promotion.</div></details>
+    <details class="quiz"><summary>What is the ISR?</summary><div class="a">The In-Sync Replica set — the leader plus any followers that are fully caught up within a configured lag bound. Only ISR members are eligible for leader election.</div></details>
+    <details class="quiz"><summary>Can a follower that's behind on replication become the new leader?</summary><div class="a">Not while it's out of the ISR — promoting a lagging replica would silently lose acknowledged data, so Kafka only elects from the ISR.</div></details>
+    <details class="quiz"><summary>What determines how a producer chooses a partition for a keyed record?</summary><div class="a">A hash of the key modulo the partition count, computed client-side at send time — the same key always maps to the same partition (until partition count changes).</div></details>
+    <details class="quiz"><summary>Why can you increase a topic's partition count but never decrease it?</summary><div class="a">Partitions are physical ordered logs; removing one would mean discarding or merging its history, breaking ordering and offset semantics — so Kafka disallows it entirely.</div></details>
+    <details class="quiz"><summary>What is a segment?</summary><div class="a">A partition's log is split into segment files, capped by size or age. Only the newest (active) segment accepts writes; older ones are immutable.</div></details>
+    <details class="quiz"><summary>How does replication factor relate to fault tolerance?</summary><div class="a">A replication factor of N tolerates N-1 broker failures without losing that partition's data, assuming enough replicas remain in the ISR.</div></details>
+    <details class="quiz"><summary>What does min.insync.replicas control?</summary><div class="a">The minimum ISR size required for an acks=all write to succeed — it's what turns "replication factor 3" into an actual enforced durability floor.</div></details>
+    <details class="quiz"><summary>What happens to producers if the ISR drops below min.insync.replicas?</summary><div class="a">Producers using acks=all receive errors rather than having writes silently accepted with insufficient durability.</div></details>
+
+    <h2><span class="num">20.3</span> Producers</h2>
+    <details class="quiz"><summary>What are the three acks settings and their trade-offs?</summary><div class="a">acks=0 (fastest, can lose data), acks=1 (leader-only ack, can lose data on leader crash before replication), acks=all (waits for full ISR, strongest durability).</div></details>
+    <details class="quiz"><summary>What does the idempotent producer guarantee?</summary><div class="a">Exactly-once delivery per partition per producer session — retries from network issues don't create duplicate records, via a producer ID and per-message sequence numbers.</div></details>
+    <details class="quiz"><summary>How do Kafka transactions extend idempotence?</summary><div class="a">They make a set of writes across multiple partitions/topics atomic — all commit together or all roll back, which idempotence alone (scoped to one partition) can't guarantee.</div></details>
+    <details class="quiz"><summary>What's the difference between at-most-once, at-least-once, and exactly-once delivery?</summary><div class="a">At-most-once may lose messages but never duplicates; at-least-once never loses messages but may duplicate; exactly-once (idempotence + transactions) does neither.</div></details>
+    <details class="quiz"><summary>What does linger.ms do?</summary><div class="a">Deliberately delays sending to let more records accumulate into one batch, trading a small amount of latency for meaningfully higher throughput.</div></details>
+    <details class="quiz"><summary>Why would a producer's send() call block?</summary><div class="a">If buffer.memory fills up faster than records can be sent — often from bursty traffic or an undersized buffer relative to throughput.</div></details>
+    <details class="quiz"><summary>What happens if you send a record with no key?</summary><div class="a">It's distributed round-robin (or sticky-batch) across partitions for load balancing, with no ordering guarantee relative to other records.</div></details>
+    <details class="quiz"><summary>Why might increasing partition count later break existing consumer assumptions?</summary><div class="a">It changes the key-to-partition hash mapping, so a key that used to always land in partition 2 might now land elsewhere, breaking any ordering guarantee consumers relied on.</div></details>
+
+    <h2><span class="num">20.4</span> Consumers</h2>
+    <details class="quiz"><summary>What's the risk of leaving auto-commit enabled?</summary><div class="a">The offset can be committed on a timer before processing actually finishes — a crash mid-batch silently skips those records forever.</div></details>
+    <details class="quiz"><summary>What triggers a consumer group rebalance?</summary><div class="a">A consumer joining, leaving, crashing, or being considered dead due to missed heartbeats past session.timeout.ms, or a partition count change.</div></details>
+    <details class="quiz"><summary>What is cooperative rebalancing and why does it matter?</summary><div class="a">Instead of revoking all partitions from all consumers before reassigning ("stop the world"), it only reassigns the partitions that actually need to move — dramatically shortening the processing pause.</div></details>
+    <details class="quiz"><summary>What is consumer lag?</summary><div class="a">The gap between a partition's latest offset and a consumer group's committed offset — the primary signal that a consumer group can't keep up with producer write rate.</div></details>
+    <details class="quiz"><summary>Adding more consumers than partitions in a group — what happens?</summary><div class="a">Extra consumers sit idle; a partition can only be assigned to one consumer per group at a time, so partition count is a hard ceiling on parallelism.</div></details>
+    <details class="quiz"><summary>What can cause a consumer to be marked dead even though its process is still running?</summary><div class="a">Not calling poll() within max.poll.interval.ms — often from slow per-record processing — makes the group coordinator consider it dead and trigger a rebalance.</div></details>
+    <details class="quiz"><summary>What's the difference between commitSync() and commitAsync()?</summary><div class="a">commitSync() blocks until the broker acknowledges the commit; commitAsync() is non-blocking but failures are only surfaced via a callback, not an exception.</div></details>
+    <details class="quiz"><summary>How would you replay the last 24 hours of a topic for a given consumer group?</summary><div class="a">Stop the group's consumers, then use kafka-consumer-groups.sh --reset-offsets --to-datetime with the target timestamp and --execute.</div></details>
+
+    <h2><span class="num">20.5</span> Reliability &amp; delivery guarantees</h2>
+    <details class="quiz"><summary>How would you design a payment pipeline to never lose an event?</summary><div class="a">acks=all on the producer, min.insync.replicas ≥ 2, idempotent producer enabled, manual offset commits only after successful processing on the consumer side.</div></details>
+    <details class="quiz"><summary>What is a tombstone record?</summary><div class="a">A record with a key but a null value, used in a compacted topic to mark that key for eventual deletion.</div></details>
+    <details class="quiz"><summary>What's the difference between retention and compaction cleanup policies?</summary><div class="a">Retention deletes whole segments past an age/size threshold regardless of key; compaction keeps only the latest value per key, forever, regardless of age.</div></details>
+    <details class="quiz"><summary>Why is Kafka disk-throughput bound rather than IOPS-bound?</summary><div class="a">Because writes are sequential appends and reads lean heavily on the OS page cache — the workload pattern favors sequential bandwidth over random-access IOPS.</div></details>
+    <details class="quiz"><summary>What does the outbox pattern solve?</summary><div class="a">The "dual write" problem — a crash between updating a database and publishing a Kafka event leaving the two systems inconsistent. Writing the event to an outbox table in the same DB transaction, then streaming it via CDC, closes that gap.</div></details>
+    <details class="quiz"><summary>How does Schema Registry prevent breaking changes?</summary><div class="a">It enforces a compatibility mode (e.g. BACKWARD) and rejects any new schema registration that would violate it before a producer can even use it.</div></details>
+    <details class="quiz"><summary>What's the practical difference between BACKWARD and FORWARD schema compatibility?</summary><div class="a">BACKWARD lets a new schema read old data (safe to upgrade consumers first); FORWARD lets an old schema read new data (safe to upgrade producers first).</div></details>
+    <details class="quiz"><summary>How does Kafka Streams achieve exactly-once processing across a read-process-write cycle?</summary><div class="a">By wrapping the cycle in a Kafka transaction (processing.guarantee=exactly_once_v2) — the input offset commit and the output write commit together or not at all.</div></details>
+
+    <h2><span class="num">20.6</span> Performance &amp; scaling</h2>
+    <details class="quiz"><summary>Name three producer settings that improve throughput at the cost of latency.</summary><div class="a">Larger batch.size, higher linger.ms, and enabling compression (lz4/zstd) — all trade a small latency cost for meaningfully higher throughput.</div></details>
+    <details class="quiz"><summary>Why might you tune max.poll.records down instead of up?</summary><div class="a">If per-record processing is slow, a large poll batch risks exceeding max.poll.interval.ms before the batch finishes, triggering an unwanted rebalance.</div></details>
+    <details class="quiz"><summary>Is "more partitions" always better for throughput?</summary><div class="a">No — more partitions means more open file handles, more replication traffic, and slower leader elections; it's a real trade-off, not a free scaling knob.</div></details>
+    <details class="quiz"><summary>Why does sizing the JVM heap too large on a broker hurt performance?</summary><div class="a">It starves the OS page cache Kafka relies on heavily for fast reads — leaving headroom for the page cache usually matters more than a larger heap.</div></details>
+    <details class="quiz"><summary>What's the throughput/latency trade-off underlying nearly every tuning knob in Kafka?</summary><div class="a">Batching, waiting, and buffering all improve throughput by delaying individual records slightly — nearly every performance setting sits on this same dial.</div></details>
+    <details class="quiz"><summary>How would you diagnose steadily rising consumer lag?</summary><div class="a">Check whether consumer count is below partition count (a hard ceiling), then profile per-record processing time rather than assuming it's a CPU or network issue.</div></details>
+    <details class="quiz"><summary>What's the risk of setting compression too aggressively (e.g. gzip over lz4/zstd)?</summary><div class="a">Higher CPU cost per message on both producer and consumer sides, which can become the actual bottleneck on high-throughput topics.</div></details>
+    <details class="quiz"><summary>What metric would you alert on to catch broker overload early?</summary><div class="a">Rising p99 request latency for produce/fetch requests, alongside UnderReplicatedPartitions — both are earlier signals than raw CPU usage.</div></details>
+
+    <h2><span class="num">20.7</span> Ecosystem</h2>
+    <details class="quiz"><summary>What's the difference between a KStream and a KTable?</summary><div class="a">A KStream treats every record as an independent event; a KTable keeps only the latest value per key, like a continuously updated table.</div></details>
+    <details class="quiz"><summary>What backs a KTable's state internally?</summary><div class="a">A local state store (RocksDB by default) plus a compacted changelog topic, so state can be rebuilt if an instance restarts or moves.</div></details>
+    <details class="quiz"><summary>What's the difference between a source and sink connector in Kafka Connect?</summary><div class="a">A source connector pulls external data into Kafka; a sink connector pushes Kafka data out to an external system.</div></details>
+    <details class="quiz"><summary>Why should Kafka Connect run in distributed mode in production?</summary><div class="a">Standalone mode is a single process with no fault tolerance — distributed mode coordinates multiple workers via Kafka itself for resilience and scaling.</div></details>
+    <details class="quiz"><summary>When would you choose a session window over a tumbling window?</summary><div class="a">When the natural boundary is a period of inactivity (e.g. a user session) rather than a fixed clock interval — tumbling windows can arbitrarily split one real session.</div></details>
+    <details class="quiz"><summary>What problem does ksqlDB solve?</summary><div class="a">It lets you express stream processing (filters, joins, aggregations) as SQL-like queries instead of writing a Kafka Streams application in Java.</div></details>
+    <details class="quiz"><summary>Why would a team choose Protobuf over Avro for Schema Registry?</summary><div class="a">Usually because they already use Protobuf/gRPC elsewhere in the stack and want one schema format across both systems.</div></details>
+    <details class="quiz"><summary>How does Kafka Connect + Debezium implement CDC?</summary><div class="a">Debezium reads a database's transaction/write-ahead log directly and streams row-level changes into Kafka as events, without querying the tables themselves.</div></details>
+
+    <h2><span class="num">20.8</span> Security &amp; operations</h2>
+    <details class="quiz"><summary>What are the three independent security layers in Kafka?</summary><div class="a">SSL/TLS (encryption in transit), SASL (authentication), and ACLs (authorization) — each is configured and enforced separately.</div></details>
+    <details class="quiz"><summary>Why is SASL/PLAIN dangerous without SSL?</summary><div class="a">Credentials are sent essentially in the clear without transport encryption underneath, defeating the purpose of authentication.</div></details>
+    <details class="quiz"><summary>What does an ACL actually control?</summary><div class="a">Whether an authenticated principal is allowed to perform a specific operation (read, write, describe) on a specific resource (topic, group, cluster).</div></details>
+    <details class="quiz"><summary>How does IAM authentication in MSK differ from Kafka ACLs?</summary><div class="a">It ties authorization to standard AWS IAM policies attached to the calling role, instead of managing Kafka-native ACLs as a separate system.</div></details>
+    <details class="quiz"><summary>Why does Kafka need multi-AZ broker placement in the cloud?</summary><div class="a">Replication factor only protects against broker failure if replicas are actually placed on independent failure domains — same-AZ placement defeats that protection during an AZ-level outage.</div></details>
+    <details class="quiz"><summary>What's the danger of running out of disk on a broker?</summary><div class="a">Kafka doesn't degrade gracefully — the broker stops accepting writes entirely, so disk usage needs hard alerting, not just dashboards.</div></details>
+
+    <h2><span class="num">20.9</span> Scenario-based</h2>
+    <details class="quiz"><summary>Your consumer group's lag is stable at 50,000 but suddenly starts climbing fast. What do you check first?</summary><div class="a">Whether a consumer instance dropped out of the group (check active member count / recent rebalances) before assuming it's a downstream slowdown or a traffic spike.</div></details>
+    <details class="quiz"><summary>A producer using acks=1 reports success, but the message is missing downstream. What's the likely cause?</summary><div class="a">The leader acknowledged the write but crashed before followers replicated it, and a follower without that record was then elected leader — acks=all with min.insync.replicas would have prevented this.</div></details>
+    <details class="quiz"><summary>Two teams need to process the same topic completely independently, at their own pace. How do you set this up?</summary><div class="a">Put each team's consumers in a separate consumer group — Kafka delivers a full independent copy of the topic to every group.</div></details>
+    <details class="quiz"><summary>A new required field with no default was added to an Avro schema, and producer deploys started failing registration. Why?</summary><div class="a">Adding a required field without a default breaks BACKWARD compatibility — a consumer on the old schema wouldn't know how to fill that field, so the registry rejects it.</div></details>
+    <details class="quiz"><summary>You need strict ordering of all events for a given customer, but also want to scale reads horizontally. How?</summary><div class="a">Key every event by customer ID so all of a customer's events land in the same partition (guaranteeing order), while the topic's overall partition count gives you parallelism across different customers.</div></details>
+    <details class="quiz"><summary>A topic was accidentally created with replication factor 1. What's the operational fix?</summary><div class="a">Use a partition reassignment tool (kafka-reassign-partitions.sh) to add replicas on other brokers — you can increase replication factor for an existing topic without recreating it.</div></details>
+    <details class="quiz"><summary>Your consumer's max.poll.interval.ms is being exceeded due to a slow external API call per record. Two fixes?</summary><div class="a">Lower max.poll.records so each batch finishes faster, or move the slow call off the poll loop into an async worker pool and commit only after it completes.</div></details>
+    <details class="quiz"><summary>You need to migrate a topic to more partitions without breaking ordering for existing keys. What's the honest answer?</summary><div class="a">You can't fully preserve the old key-to-partition mapping when partitions change — the honest fix is planning partition count generously up front, or accepting a brief reordering window during migration.</div></details>
+    <details class="quiz"><summary>A Kafka Streams app's state store seems to lose data every time a pod restarts on Kubernetes. Likely misconfiguration?</summary><div class="a">Missing persistent volume for the RocksDB state directory — without it, the local state store is wiped on restart and has to fully rebuild from the changelog topic, which looks like data loss under load.</div></details>
+    <details class="quiz"><summary>How would you safely roll out a breaking schema change that removes a field several consumers still depend on?</summary><div class="a">Don't remove it directly — deprecate it, keep publishing both old and new fields for a transition window, migrate consumers off the old field, then remove it once nothing depends on it, all governed by the registry's compatibility check at each step.</div></details>
+
+    <h2><span class="num">20.10</span> Summary</h2>
+    <p>Every question above traces back to a concept already covered in Modules 1–19 — that's deliberate. Interviewers at the Associate/GET level are almost always testing whether you understand <em>why</em> a default exists, not whether you've memorized a config flag name.</p>
+
+    <div class="footnav">
+      <a href="19-microservices.html">&larr; Module 19 · Microservices</a>
+      <a class="next" href="21-projects.html">Module 21 · Hands-on Projects (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
