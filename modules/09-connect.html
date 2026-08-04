@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 9 · Kafka Connect — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="9">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 009</span></div>
+    <div class="module-badge">Module 9 of 23</div>
+    <h1 class="title">Kafka Connect</h1>
+    <p class="dek lead">Most data doesn't originate as a hand-written producer call — it lives in a Postgres table or needs to end up in Elasticsearch. Connect exists so you configure that movement in JSON instead of writing and operating custom producer/consumer code for every integration.</p>
+
+    <h2><span class="num">9.1</span> Source vs Sink connectors</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 640 160" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#cfd4dc}.h{font-family:'IBM Plex Mono',monospace;font-size:12px;fill:#f5a623;font-weight:600}</style>
+        <rect x="20" y="55" width="120" height="50" rx="4" fill="#161c27" stroke="#232a38"/><text x="80" y="85" text-anchor="middle" class="t">Postgres DB</text>
+        <line x1="140" y1="80" x2="230" y2="80" stroke="#2dd4bf"/>
+        <rect x="235" y="30" width="150" height="100" rx="4" fill="none" stroke="#232a38" stroke-dasharray="4 3"/>
+        <text x="310" y="20" text-anchor="middle" class="h">Kafka Connect</text>
+        <rect x="255" y="45" width="110" height="35" fill="#161c27" stroke="#2dd4bf"/><text x="310" y="67" text-anchor="middle" class="t" font-size="10">Source Connector</text>
+        <rect x="255" y="90" width="110" height="35" fill="#161c27" stroke="#8b7bd8"/><text x="310" y="112" text-anchor="middle" class="t" font-size="10">Sink Connector</text>
+        <line x1="385" y1="62" x2="460" y2="62" stroke="#2dd4bf"/>
+        <rect x="465" y="45" width="130" height="35" rx="3" fill="#161c27" stroke="#f5a623"/><text x="530" y="67" text-anchor="middle" class="t" fill="#f5a623" font-size="10">topic: db-orders</text>
+        <line x1="465" y1="107" x2="385" y2="107" stroke="#8b7bd8"/>
+        <rect x="20" y="90" width="1" height="1" fill="none"/>
+        <rect x="595" y="90" width="0" height="0"/>
+        <line x1="530" y1="80" x2="530" y2="98" stroke="#f5a623"/>
+        <rect x="465" y="95" width="0" height="0"/>
+        <text x="530" y="150" text-anchor="middle" class="t" fill="#8b96a8">same topic feeds the sink to Elasticsearch (not shown) independently</text>
+      </svg>
+      <figcaption>Source connectors pull external data into Kafka; sink connectors push Kafka data out to external systems. A single topic can feed multiple sinks.</figcaption>
+    </div>
+    <ul>
+      <li><strong>Source connector</strong> — pulls data <em>into</em> Kafka from an external system (a database, an API, a file directory).</li>
+      <li><strong>Sink connector</strong> — pushes data <em>out of</em> Kafka into an external system (a search index, a data warehouse, object storage).</li>
+    </ul>
+
+    <h2><span class="num">9.2</span> Connect worker modes</h2>
+    <ul>
+      <li><strong>Standalone</strong> — single process, config in a local file; fine for local development, not for production.</li>
+      <li><strong>Distributed</strong> — a cluster of worker processes coordinating via Kafka itself, submitting connector configs via a REST API; this is what you run in production, since it gives you fault tolerance and horizontal scaling for connector tasks.</li>
+    </ul>
+
+    <h2><span class="num">9.3</span> JDBC source connector (CDC-style)</h2>
+    <pre><code>{
+  <span class="tok-str">"name"</span>: <span class="tok-str">"jdbc-orders-source"</span>,
+  <span class="tok-str">"config"</span>: {
+    <span class="tok-str">"connector.class"</span>: <span class="tok-str">"io.confluent.connect.jdbc.JdbcSourceConnector"</span>,
+    <span class="tok-str">"connection.url"</span>: <span class="tok-str">"jdbc:postgresql://db:5432/shop"</span>,
+    <span class="tok-str">"table.whitelist"</span>: <span class="tok-str">"orders"</span>,
+    <span class="tok-str">"mode"</span>: <span class="tok-str">"incrementing"</span>,
+    <span class="tok-str">"incrementing.column.name"</span>: <span class="tok-str">"id"</span>,
+    <span class="tok-str">"topic.prefix"</span>: <span class="tok-str">"db-"</span>
+  }
+}</code></pre>
+    <p>Submitted to the REST API: <code>POST /connectors</code> with the JSON body above. Connect polls the table on an interval and produces a record per new/changed row to <code>db-orders</code>.</p>
+
+    <h2><span class="num">9.4</span> Elasticsearch sink connector</h2>
+    <pre><code>{
+  <span class="tok-str">"name"</span>: <span class="tok-str">"es-orders-sink"</span>,
+  <span class="tok-str">"config"</span>: {
+    <span class="tok-str">"connector.class"</span>: <span class="tok-str">"io.confluent.connect.elasticsearch.ElasticsearchSinkConnector"</span>,
+    <span class="tok-str">"connection.url"</span>: <span class="tok-str">"http://elasticsearch:9200"</span>,
+    <span class="tok-str">"topics"</span>: <span class="tok-str">"db-orders"</span>,
+    <span class="tok-str">"key.ignore"</span>: <span class="tok-str">"true"</span>,
+    <span class="tok-str">"type.name"</span>: <span class="tok-str">"_doc"</span>
+  }
+}</code></pre>
+
+    <h2><span class="num">9.5</span> S3 sink connector</h2>
+    <pre><code>{
+  <span class="tok-str">"name"</span>: <span class="tok-str">"s3-orders-sink"</span>,
+  <span class="tok-str">"config"</span>: {
+    <span class="tok-str">"connector.class"</span>: <span class="tok-str">"io.confluent.connect.s3.S3SinkConnector"</span>,
+    <span class="tok-str">"s3.bucket.name"</span>: <span class="tok-str">"analytics-lake"</span>,
+    <span class="tok-str">"topics"</span>: <span class="tok-str">"db-orders"</span>,
+    <span class="tok-str">"format.class"</span>: <span class="tok-str">"io.confluent.connect.s3.format.parquet.ParquetFormat"</span>,
+    <span class="tok-str">"flush.size"</span>: <span class="tok-str">"1000"</span>
+  }
+}</code></pre>
+
+    <h2><span class="num">9.6</span> Common mistakes</h2>
+    <ul>
+      <li>Running standalone mode in production — no fault tolerance if the single worker process dies.</li>
+      <li>JDBC source in <code>incrementing</code> mode against a table with updates (not just inserts) — it will miss updates to existing rows; use <code>timestamp+incrementing</code> mode or proper log-based CDC (e.g. Debezium) for update-heavy tables.</li>
+      <li>Forgetting Schema Registry integration (Module 11) when connectors on both ends expect structured data — mismatched or missing schemas break sink connectors downstream.</li>
+    </ul>
+
+    <h2><span class="num">9.7</span> Summary</h2>
+    <p>Kafka Connect turns data integration into configuration instead of code: source connectors bring external data in, sink connectors push Kafka data out, and distributed mode gives you the fault tolerance to run this reliably in production — all managed through a REST API rather than custom producer/consumer applications.</p>
+
+    <div class="footnav">
+      <a href="08-storage.html">&larr; Module 8 · Storage Internals</a>
+      <a class="next" href="10-streams.html">Module 10 · Kafka Streams (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
