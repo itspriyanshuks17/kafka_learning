@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 22 · Troubleshooting — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="22">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 022</span></div>
+    <div class="module-badge">Module 22 of 23</div>
+    <h1 class="title">Troubleshooting</h1>
+    <p class="dek lead">A field guide organized by symptom. Each one names the metric or command that confirms the diagnosis before you touch anything.</p>
+
+    <h2><span class="num">22.1</span> Symptom: rising consumer lag</h2>
+    <pre><code>bin/kafka-consumer-groups.sh --describe --group my-group --bootstrap-server localhost:9092</code></pre>
+    <ul>
+      <li><strong>Check consumer count vs partition count</strong> — if consumers = partitions already, you're at the parallelism ceiling (Module 2.11); adding more partitions (and consumers) is the only real fix.</li>
+      <li><strong>Check per-record processing time</strong> — a slow downstream call (DB write, external API) inside the poll loop is the most common root cause, not CPU or network.</li>
+      <li><strong>Check for frequent rebalances</strong> — each one pauses the whole group briefly; look for consumers dropping in/out due to <code>max.poll.interval.ms</code> being exceeded.</li>
+    </ul>
+
+    <h2><span class="num">22.2</span> Symptom: constant/frequent rebalancing</h2>
+    <ul>
+      <li>Increase <code>max.poll.interval.ms</code> if processing legitimately takes longer than the default, or reduce <code>max.poll.records</code> so batches finish faster.</li>
+      <li>Check for consumer instances crashing and restarting in a loop — the rebalance is a symptom, the crash is the disease.</li>
+      <li>Switch to <code>CooperativeStickyAssignor</code> (Module 6.4) if you're still on the default eager assignor — it shrinks the pause even when rebalances do happen.</li>
+    </ul>
+
+    <h2><span class="num">22.3</span> Symptom: broker out of disk</h2>
+    <p>This is the failure mode that doesn't degrade gracefully — writes simply stop. Immediate mitigation: reduce <code>retention.ms</code>/<code>retention.bytes</code> on the largest topics to force faster segment deletion, or add disk capacity if infrastructure allows it live. Longer-term: alert on disk usage trend well before this point (Module 13.5), not just at the crisis threshold.</p>
+
+    <h2><span class="num">22.4</span> Symptom: broker failure / unplanned restart</h2>
+    <pre><code>bin/kafka-topics.sh --describe --under-replicated-partitions --bootstrap-server localhost:9092</code></pre>
+    <ul>
+      <li>Check <code>UnderReplicatedPartitions</code> — nonzero means some partitions temporarily have fewer in-sync replicas than expected while the broker recovers.</li>
+      <li>Confirm leader election happened cleanly (Module 7.3) — clients should recover automatically once they refresh metadata; persistent errors past a few seconds suggest a deeper networking or config issue.</li>
+      <li>Once the broker rejoins, its replicas need time to catch back up — watch ISR membership return to full before considering the incident closed.</li>
+    </ul>
+
+    <h2><span class="num">22.5</span> Symptom: leader election problems / no active controller</h2>
+    <pre><code>bin/kafka-metadata-quorum.sh --bootstrap-server localhost:9092 describe --status</code></pre>
+    <p><code>ActiveControllerCount</code> should be exactly 1 cluster-wide. Zero or more than one indicates a controller quorum problem — check network connectivity between controller nodes and quorum voter configuration (<code>controller.quorum.voters</code>) for mismatches.</p>
+
+    <h2><span class="num">22.6</span> Symptom: producer errors under load</h2>
+    <ul>
+      <li><code>NotEnoughReplicasException</code> — ISR has dropped below <code>min.insync.replicas</code>; check for broker issues first (Module 22.4).</li>
+      <li><code>TimeoutException</code> on send — often a buffer.memory too small for the burst rate, or a genuinely overloaded broker (check request latency percentiles, Module 13.2).</li>
+      <li><code>RecordTooLargeException</code> — message exceeds <code>max.request.size</code>/broker's <code>message.max.bytes</code>; either raise the limit deliberately or reconsider whether Kafka is the right transport for that payload size.</li>
+    </ul>
+
+    <h2><span class="num">22.7</span> Symptom: schema registration rejected</h2>
+    <p>This is usually the registry working correctly, not a bug (Module 11.4) — a field removal or type change violates the configured compatibility mode. Confirm the intended compatibility mode first; if the change is genuinely necessary, it needs a coordinated multi-step rollout (deprecate, transition, remove), not a compatibility-mode override.</p>
+
+    <h2><span class="num">22.8</span> Diagnostic checklist, in order</h2>
+    <ol>
+      <li>Confirm which layer the symptom is in: producer, broker/cluster, or consumer.</li>
+      <li>Pull the relevant metric or CLI command from this module before changing any config.</li>
+      <li>Check recent changes first — partition count changes, schema deploys, and consumer deploys explain most incidents more often than "Kafka itself broke."</li>
+      <li>Fix the root cause, then verify the specific metric (lag, ISR, controller count) returns to a healthy baseline — not just that the alert stopped firing.</li>
+    </ol>
+
+    <h2><span class="num">22.9</span> Summary</h2>
+    <p>Nearly every Kafka incident maps to one of a handful of root causes covered across this handbook — parallelism ceilings, ISR/durability settings, disk exhaustion, or a schema/config change. The <code>kafka-consumer-groups.sh --describe</code> and JMX metrics from Module 13 are almost always the first two things worth checking, before anything else.</p>
+
+    <div class="footnav">
+      <a href="21-projects.html">&larr; Module 21 · Hands-on Projects</a>
+      <a class="next" href="23-best-practices.html">Module 23 · Best Practices (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>

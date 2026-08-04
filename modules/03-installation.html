@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 3 · Installation — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="3">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 003</span></div>
+    <div class="module-badge">Module 3 of 23</div>
+    <h1 class="title">Installation</h1>
+    <p class="dek lead">Every install path below sets up KRaft mode (Module 2.9) — no ZooKeeper. Pick the path that matches how you'll actually run Kafka day to day.</p>
+
+    <h2><span class="num">3.1</span> Prerequisites</h2>
+    <ul>
+      <li>Java 17 or newer (Kafka runs on the JVM regardless of which client language you use).</li>
+      <li>At least 2 vCPU / 4 GB RAM for a single-node dev cluster; production brokers typically get dedicated fast disks (SSD/NVMe), since Kafka is disk-throughput bound.</li>
+    </ul>
+
+    <h2><span class="num">3.2</span> Linux / macOS — quickstart binary</h2>
+    <pre><code><span class="tok-cmt"># download and extract (check kafka.apache.org for the current version)</span>
+tar -xzf kafka_2.13-3.9.0.tgz
+cd kafka_2.13-3.9.0
+
+<span class="tok-cmt"># generate a cluster ID and format storage for KRaft mode</span>
+KAFKA_CLUSTER_ID="$(bin/kafka-storage.sh random-uuid)"
+bin/kafka-storage.sh format --standalone -t $KAFKA_CLUSTER_ID -c config/server.properties
+
+<span class="tok-cmt"># start the broker (acts as broker + controller in dev mode)</span>
+bin/kafka-server-start.sh config/server.properties</code></pre>
+    <p>That's a fully functional single-node KRaft cluster. Verify it's alive:</p>
+    <pre><code>bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+<span class="tok-cmt"># (empty output — no topics yet, but no connection error either)</span></code></pre>
+
+    <h2><span class="num">3.3</span> Windows</h2>
+    <p>Kafka ships <code>.bat</code> equivalents of every script under <code>bin\windows\</code>. Same steps as Linux, substituting the script extension:</p>
+    <pre><code>bin\windows\kafka-storage.bat format -t %KAFKA_CLUSTER_ID% -c config\kraft\server.properties
+bin\windows\kafka-server-start.bat config\kraft\server.properties</code></pre>
+    <div class="callout tip"><strong>Reality check —</strong> most teams developing on Windows just run Kafka inside Docker or WSL2 rather than the native Windows scripts, since the JVM + filesystem behavior on native Windows has more rough edges under load.</div>
+
+    <h2><span class="num">3.4</span> Docker (single broker, fastest path)</h2>
+    <pre><code>docker run -d --name kafka -p 9092:9092 \
+  -e KAFKA_NODE_ID=1 \
+  -e KAFKA_PROCESS_ROLES=broker,controller \
+  -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+  -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
+  -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093 \
+  -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+  apache/kafka:3.9.0</code></pre>
+    <p>For a real multi-broker dev cluster with Docker Compose, see the full setup in Module 15.</p>
+
+    <h2><span class="num">3.5</span> Kubernetes</h2>
+    <p>Running raw Kafka manifests on Kubernetes by hand is not recommended — StatefulSets, persistent volumes, and broker identity all need careful coordination. Use the <strong>Strimzi operator</strong>, covered end-to-end in Module 16.</p>
+
+    <h2><span class="num">3.6</span> Cloud installation</h2>
+    <ul>
+      <li><strong>Confluent Cloud</strong> — fully managed Kafka-as-a-service, no broker management at all.</li>
+      <li><strong>Amazon MSK</strong> — managed Kafka on AWS, covered fully in Module 17.</li>
+      <li><strong>Self-managed on EC2/GCE/Azure VMs</strong> — same binary install as 3.2, with attention to EBS/persistent-disk throughput and cross-AZ placement for real fault tolerance.</li>
+    </ul>
+
+    <h2><span class="num">3.7</span> Verifying your install</h2>
+    <pre><code><span class="tok-cmt"># create a test topic</span>
+bin/kafka-topics.sh --create --topic test-topic --bootstrap-server localhost:9092 \
+  --partitions 3 --replication-factor 1
+
+<span class="tok-cmt"># produce a message</span>
+echo "hello kafka" | bin/kafka-console-producer.sh --topic test-topic --bootstrap-server localhost:9092
+
+<span class="tok-cmt"># consume it back</span>
+bin/kafka-console-consumer.sh --topic test-topic --from-beginning --bootstrap-server localhost:9092
+<span class="tok-cmt"># => hello kafka</span></code></pre>
+
+    <h2><span class="num">3.8</span> Common mistakes</h2>
+    <ul>
+      <li>Using <code>replication-factor 1</code> beyond a local dev test — fine here, dangerous in anything shared.</li>
+      <li>Forgetting to set <code>KAFKA_ADVERTISED_LISTENERS</code> correctly in Docker — clients outside the container get an unreachable internal hostname back and connections silently fail after the initial handshake.</li>
+      <li>Mixing an old ZooKeeper-mode <code>server.properties</code> template with a new KRaft install — the property sets are different; use the KRaft template that ships with your version.</li>
+    </ul>
+
+    <h2><span class="num">3.9</span> Summary</h2>
+    <p>Every environment — bare metal, Docker, Kubernetes, or cloud-managed — converges on the same KRaft-mode broker underneath. Get comfortable with the raw binary install first; Docker (Module 15) and Kubernetes (Module 16) are just packaging around the same <code>kafka-server-start</code> process.</p>
+
+    <div class="footnav">
+      <a href="02-architecture.html">&larr; Module 2 · Architecture</a>
+      <a class="next" href="04-cli.html">Module 4 · Kafka CLI (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>

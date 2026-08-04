@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 8 · Storage Internals — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="8">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 008</span></div>
+    <div class="module-badge">Module 8 of 23</div>
+    <h1 class="title">Kafka Storage Internals</h1>
+    <p class="dek lead">A partition isn't one giant file — it's a directory of smaller files called segments. That single design decision is why retention, compaction, and deletion can all happen without ever rewriting the active log.</p>
+
+    <h2><span class="num">8.1</span> Log segments</h2>
+    <p>Each partition's log is split into <strong>segments</strong> — files typically capped by size (<code>log.segment.bytes</code>, default 1 GB) or age (<code>log.roll.ms</code>). Only the newest segment, the <strong>active segment</strong>, accepts new writes; older segments are immutable and read-only.</p>
+    <div class="diagram">
+      <svg viewBox="0 0 640 160" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:10.5px;fill:#cfd4dc}</style>
+        <rect x="20" y="40" width="140" height="60" fill="#1c8f80"/><text x="90" y="65" text-anchor="middle" class="t">00000000000000000000.log</text><text x="90" y="82" text-anchor="middle" class="t" fill="#8b96a8">closed</text>
+        <rect x="170" y="40" width="140" height="60" fill="#26bfab"/><text x="240" y="65" text-anchor="middle" class="t">00000000000000524288.log</text><text x="240" y="82" text-anchor="middle" class="t" fill="#0a0d12">closed</text>
+        <rect x="320" y="40" width="140" height="60" fill="#2dd4bf" stroke="#f5a623" stroke-width="2"/><text x="390" y="65" text-anchor="middle" class="t" fill="#0a0d12">00000000000001048576.log</text><text x="390" y="82" text-anchor="middle" class="t" fill="#0a0d12">ACTIVE — accepts writes</text>
+      </svg>
+      <figcaption>Filenames are the base offset each segment starts at. Only the rightmost (active) segment is ever appended to.</figcaption>
+    </div>
+    <p>Each <code>.log</code> segment is paired with a <code>.index</code> file (offset &rarr; byte position) and a <code>.timeindex</code> file (timestamp &rarr; offset), which is how a consumer requesting "give me everything after 3pm yesterday" resolves quickly without scanning the whole log.</p>
+
+    <h2><span class="num">8.2</span> Retention</h2>
+    <p>Retention decides when old segments are deleted, controlled per-topic:</p>
+    <ul>
+      <li><code>retention.ms</code> — delete segments older than this (default 7 days).</li>
+      <li><code>retention.bytes</code> — cap total partition size, deleting oldest segments once exceeded.</li>
+    </ul>
+    <p>Because deletion happens at the <strong>segment</strong> level, not per-record, Kafka never has to rewrite a file to remove old data — it just deletes whole closed segment files once every record in them is past the retention window.</p>
+
+    <h2><span class="num">8.3</span> Compaction</h2>
+    <p>Time-based retention deletes old data outright. <strong>Log compaction</strong> (<code>cleanup.policy=compact</code>) takes a different approach: for each key, it keeps only the <em>latest</em> value, forever, discarding older values for that same key. This turns a topic into something like a durable key-value snapshot, replayable from scratch.</p>
+    <div class="diagram">
+      <svg viewBox="0 0 640 160" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#cfd4dc}</style>
+        <text x="150" y="20" text-anchor="middle" class="t" fill="#f5a623">Before compaction</text>
+        <rect x="20" y="30" width="60" height="30" fill="#161c27" stroke="#232a38"/><text x="50" y="50" text-anchor="middle" class="t" font-size="9">K1=v1</text>
+        <rect x="85" y="30" width="60" height="30" fill="#161c27" stroke="#232a38"/><text x="115" y="50" text-anchor="middle" class="t" font-size="9">K2=v1</text>
+        <rect x="150" y="30" width="60" height="30" fill="#161c27" stroke="#232a38"/><text x="180" y="50" text-anchor="middle" class="t" font-size="9">K1=v2</text>
+        <rect x="215" y="30" width="60" height="30" fill="#161c27" stroke="#232a38"/><text x="245" y="50" text-anchor="middle" class="t" font-size="9">K3=v1</text>
+        <rect x="280" y="30" width="60" height="30" fill="#161c27" stroke="#2dd4bf"/><text x="310" y="50" text-anchor="middle" class="t" font-size="9">K1=v3</text>
+
+        <text x="150" y="105" text-anchor="middle" class="t" fill="#f5a623">After compaction</text>
+        <rect x="85" y="115" width="60" height="30" fill="#161c27" stroke="#232a38"/><text x="115" y="135" text-anchor="middle" class="t" font-size="9">K2=v1</text>
+        <rect x="215" y="115" width="60" height="30" fill="#161c27" stroke="#232a38"/><text x="245" y="135" text-anchor="middle" class="t" font-size="9">K3=v1</text>
+        <rect x="280" y="115" width="60" height="30" fill="#161c27" stroke="#2dd4bf"/><text x="310" y="135" text-anchor="middle" class="t" font-size="9">K1=v3</text>
+        <text x="150" y="135" text-anchor="middle" class="t" fill="#8b96a8" font-size="10">K1=v1, K1=v2 removed — only latest K1 kept</text>
+      </svg>
+      <figcaption>This is exactly how Kafka Streams' KTables (Module 10) and internal changelog topics work — compaction is what makes "topic as a table" possible.</figcaption>
+    </div>
+    <p>A special value — a <strong>tombstone</strong> (a record with the key but a null value) — marks a key for deletion; compaction removes it entirely after a configurable delay, giving consumers time to see the delete before it disappears.</p>
+
+    <h2><span class="num">8.4</span> Cleanup policies</h2>
+    <table>
+      <tr><th>Policy</th><th>Behavior</th><th>Use case</th></tr>
+      <tr><td><code>delete</code> (default)</td><td>Removes whole segments past retention time/size</td><td>Event streams, logs — history has a natural expiry</td></tr>
+      <tr><td><code>compact</code></td><td>Keeps only the latest value per key, forever</td><td>Changelog topics, "latest state per entity" topics</td></tr>
+      <tr><td><code>compact,delete</code></td><td>Both — compact by key, and also expire very old records</td><td>Latest-state topics that also need a hard data-age ceiling (e.g. compliance)</td></tr>
+    </table>
+
+    <h2><span class="num">8.5</span> Disk layout</h2>
+    <pre><code>/var/lib/kafka/data/
+  orders-0/
+    00000000000000000000.log
+    00000000000000000000.index
+    00000000000000000000.timeindex
+    00000000000000524288.log
+    ...
+  orders-1/
+    ...</code></pre>
+    <p>Each partition is its own directory named <code>&lt;topic&gt;-&lt;partition&gt;</code>. Because Kafka relies heavily on sequential disk writes (append-only) and the OS page cache for reads, it's disk-throughput bound rather than IOPS-bound — fast sequential-write SSDs matter more than raw random IOPS.</p>
+
+    <h2><span class="num">8.6</span> Common mistakes</h2>
+    <ul>
+      <li>Using <code>compact</code> cleanup policy on a topic that isn't naturally keyed (e.g. logs with no meaningful key) — you'll silently lose data you actually needed.</li>
+      <li>Setting retention far shorter than downstream consumers' realistic recovery/reprocessing window — a consumer down for a long weekend can lose data it needed to replay.</li>
+      <li>Ignoring disk throughput in capacity planning and only sizing for disk <em>space</em> — Kafka's bottleneck is almost always sequential write/read bandwidth.</li>
+    </ul>
+
+    <h2><span class="num">8.7</span> Check your understanding</h2>
+    <details class="quiz"><summary>Q1. Why can Kafka delete old data without rewriting any files?</summary><div class="a">Because a partition's log is split into immutable segment files. Retention just deletes whole closed segment files once every record inside is past the retention window — no in-place rewriting needed.</div></details>
+    <details class="quiz"><summary>Q2. What does log compaction guarantee that time-based retention doesn't?</summary><div class="a">Compaction guarantees the latest value for every key is retained forever, regardless of age — useful for "current state" topics — whereas time-based retention deletes everything past an age threshold, keys included.</div></details>
+
+    <h2><span class="num">8.8</span> Summary</h2>
+    <p>Partitions are physically stored as a sequence of immutable segment files, which is what makes both retention (delete whole old segments) and compaction (keep only the latest value per key) cheap operations rather than expensive rewrites. Choosing the right cleanup policy per topic is a core design decision, not an afterthought.</p>
+
+    <div class="footnav">
+      <a href="07-topics-partitions.html">&larr; Module 7 · Topics & Partitions</a>
+      <a class="next" href="09-connect.html">Module 9 · Kafka Connect (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>

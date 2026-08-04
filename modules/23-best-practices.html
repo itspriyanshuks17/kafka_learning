@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 23 · Best Practices — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="23">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 023 (final)</span></div>
+    <div class="module-badge">Module 23 of 23 — Final</div>
+    <h1 class="title">Best Practices</h1>
+    <p class="dek lead">The last segment in the log. Everything here is a decision worth making deliberately, up front — not a default worth leaving unexamined.</p>
+
+    <h2><span class="num">23.1</span> Topic naming</h2>
+    <ul>
+      <li>Use a consistent, hierarchical convention: <code>&lt;domain&gt;.&lt;entity&gt;.&lt;event-type&gt;</code> — e.g. <code>orders.order.placed</code>, <code>payments.transaction.completed</code>.</li>
+      <li>Avoid environment names inside the topic name (<code>orders-prod</code>) — separate environments should mean separate clusters, not separate naming schemes on one cluster.</li>
+      <li>Pick past-tense event names (<code>OrderPlaced</code>, not <code>PlaceOrder</code>) — a topic carries facts about what happened, not commands (Module 1.7).</li>
+    </ul>
+
+    <h2><span class="num">23.2</span> Partition sizing</h2>
+    <ul>
+      <li>Size for your target consumer parallelism <em>and</em> realistic per-partition throughput, not just current traffic — remember partition count can only increase, never decrease (Module 7.4).</li>
+      <li>A reasonable starting range for moderate-traffic topics is 6–12 partitions; extremely high-throughput topics may need dozens, but each additional partition has a real cost (open file handles, replication traffic, slower elections).</li>
+      <li>Revisit based on actual lag metrics (Module 6.5), not speculative future load.</li>
+    </ul>
+
+    <h2><span class="num">23.3</span> Replication factor</h2>
+    <ul>
+      <li>Production default: replication factor 3, <code>min.insync.replicas=2</code> — tolerates one broker failure with zero data loss for <code>acks=all</code> producers.</li>
+      <li>Never run replication factor 1 outside of local development — a single broker failure loses that partition's data entirely.</li>
+      <li>Spread replicas across independent failure domains (AZs/racks) — replication factor only protects you if replicas can't all fail together (Module 17.1).</li>
+    </ul>
+
+    <h2><span class="num">23.4</span> Security</h2>
+    <ul>
+      <li>All three layers, always in production: SSL for encryption, SASL for authentication, ACLs for authorization (Module 12) — not just the ones that felt urgent at launch.</li>
+      <li>Scope ACLs to least privilege per service/team — "allow all to unblock a deploy" is the kind of shortcut that outlives its justification.</li>
+      <li>Encrypt inter-broker traffic, not just client-facing traffic — replication data is real data too.</li>
+    </ul>
+
+    <h2><span class="num">23.5</span> Monitoring</h2>
+    <ul>
+      <li>Alert on the shortlist from Module 13.2: <code>UnderReplicatedPartitions</code>, <code>ActiveControllerCount</code>, consumer lag trend, request latency percentiles, disk usage trend.</li>
+      <li>Alert on lag <em>trend</em>, not absolute lag — a stable large number can be healthy; a small but rapidly growing number is the real warning.</li>
+      <li>Treat disk usage as a hard-alert metric, not a dashboard — Kafka's failure mode here (stop accepting writes) doesn't degrade gracefully.</li>
+    </ul>
+
+    <h2><span class="num">23.6</span> Scaling</h2>
+    <ul>
+      <li>Scale consumers up to (but not past) partition count — extra instances beyond that sit idle (Module 2.11).</li>
+      <li>Prefer cooperative rebalancing (<code>CooperativeStickyAssignor</code>) in any cluster where consumer group membership changes often.</li>
+      <li>Treat partition reassignment as a deliberate, monitored operation (via <code>kafka-reassign-partitions.sh</code>), not something to run casually on a live production topic.</li>
+    </ul>
+
+    <h2><span class="num">23.7</span> Schema &amp; data contracts</h2>
+    <ul>
+      <li>Every multi-team topic should go through Schema Registry with an explicit compatibility mode (Module 11.4) — "we'll coordinate in Slack" is not a contract.</li>
+      <li>Default to <code>BACKWARD</code> compatibility unless you have a specific reason for something looser.</li>
+      <li>Use the outbox pattern (Module 19.4) for any service that needs to keep its own database and its Kafka events consistent.</li>
+    </ul>
+
+    <h2><span class="num">23.8</span> The one-page mental model</h2>
+    <div class="callout tip">
+      <strong>If you remember nothing else from this handbook —</strong> Kafka is a distributed, append-only log. Partitions are the real unit of ordering and parallelism. Producers decide durability via <code>acks</code>; consumers decide correctness via when they commit offsets. Everything else in this handbook — Streams, Connect, Schema Registry, security, Kubernetes, MSK — is infrastructure built around that one core idea.
+    </div>
+
+    <h2><span class="num">23.9</span> Where to go from here</h2>
+    <p>Build Project 8 from Module 21 end to end — it's the one project that forces you to apply nearly every module in this handbook at once. If something in it doesn't make sense, that's the module worth re-reading, not a sign to skip ahead.</p>
+
+    <div class="footnav">
+      <a href="22-troubleshooting.html">&larr; Module 22 · Troubleshooting</a>
+      <a class="next" href="../index.html">Back to the log index &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>

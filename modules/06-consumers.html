@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 6 · Consumers — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="6">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 006</span></div>
+    <div class="module-badge">Module 6 of 23</div>
+    <h1 class="title">Consumers</h1>
+    <p class="dek lead">The producer's job ends the moment a record is durably written. Everything about correctness after that — did we process this exactly once, what happens when a consumer dies mid-batch — is the consumer's problem. This module is about owning that problem deliberately.</p>
+
+    <h2><span class="num">6.1</span> The Consumer API — Java</h2>
+    <pre><code>Properties props = <span class="tok-kw">new</span> Properties();
+props.put(<span class="tok-str">"bootstrap.servers"</span>, <span class="tok-str">"localhost:9092"</span>);
+props.put(<span class="tok-str">"group.id"</span>, <span class="tok-str">"fraud-detector"</span>);
+props.put(<span class="tok-str">"key.deserializer"</span>, <span class="tok-str">"org.apache.kafka.common.serialization.StringDeserializer"</span>);
+props.put(<span class="tok-str">"value.deserializer"</span>, <span class="tok-str">"org.apache.kafka.common.serialization.StringDeserializer"</span>);
+props.put(<span class="tok-str">"enable.auto.commit"</span>, <span class="tok-str">"false"</span>);
+
+KafkaConsumer&lt;String, String&gt; consumer = <span class="tok-kw">new</span> KafkaConsumer&lt;&gt;(props);
+consumer.subscribe(List.of(<span class="tok-str">"orders"</span>));
+
+<span class="tok-kw">while</span> (<span class="tok-kw">true</span>) {
+    ConsumerRecords&lt;String, String&gt; records = consumer.poll(Duration.ofMillis(500));
+    <span class="tok-kw">for</span> (ConsumerRecord&lt;String, String&gt; r : records) {
+        process(r.key(), r.value());
+    }
+    consumer.commitSync(); <span class="tok-cmt">// commit only after processing succeeds</span>
+}</code></pre>
+
+    <h2><span class="num">6.2</span> Consumer groups, revisited</h2>
+    <p>Every consumer belongs to a <strong>consumer group</strong> (<code>group.id</code>). Kafka's group coordinator assigns each partition of the subscribed topic(s) to exactly one consumer instance within that group. This is the mechanism from Module 2.6 — the actual assignment protocol is what makes both scaling out and automatic failover work.</p>
+
+    <h2><span class="num">6.3</span> Offset management: auto vs manual commit</h2>
+    <table>
+      <tr><th></th><th>Auto commit</th><th>Manual commit</th></tr>
+      <tr><td>Config</td><td><code>enable.auto.commit=true</code> (default), commits every <code>auto.commit.interval.ms</code></td><td><code>enable.auto.commit=false</code>, call <code>commitSync()</code>/<code>commitAsync()</code> explicitly</td></tr>
+      <tr><td>Risk</td><td>Offset can commit before processing finishes — a crash mid-batch silently skips unprocessed records</td><td>You control exactly when "processed" means "safe to commit"</td></tr>
+      <tr><td>Best for</td><td>Simple, loss-tolerant pipelines (metrics, logs)</td><td>Anything where losing or double-processing a record has real cost</td></tr>
+    </table>
+    <pre><code><span class="tok-cmt">// commit synchronously, after processing, blocking until the broker acks</span>
+consumer.commitSync();
+
+<span class="tok-cmt">// commit asynchronously — faster, but failures are only reported via callback</span>
+consumer.commitAsync((offsets, exception) -&gt; {
+    <span class="tok-kw">if</span> (exception != <span class="tok-kw">null</span>) log.error(<span class="tok-str">"commit failed"</span>, exception);
+});</code></pre>
+
+    <h2><span class="num">6.4</span> Rebalancing</h2>
+    <p>A <strong>rebalance</strong> is the group coordinator reassigning partitions among consumers — triggered when a consumer joins, leaves, crashes, or is considered dead (missed heartbeats past <code>session.timeout.ms</code>). During a classic "stop-the-world" rebalance, <em>all</em> consumers in the group pause processing until reassignment completes.</p>
+    <div class="diagram">
+      <svg viewBox="0 0 640 200" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#cfd4dc}.h{font-family:'IBM Plex Mono',monospace;font-size:12px;fill:#f5a623;font-weight:600}</style>
+        <text x="150" y="20" text-anchor="middle" class="h">Before: 3 consumers, 6 partitions</text>
+        <rect x="30" y="34" width="70" height="40" fill="#161c27" stroke="#232a38"/><text x="65" y="58" text-anchor="middle" class="t">C1: P0,P1</text>
+        <rect x="115" y="34" width="70" height="40" fill="#161c27" stroke="#232a38"/><text x="150" y="58" text-anchor="middle" class="t">C2: P2,P3</text>
+        <rect x="200" y="34" width="70" height="40" fill="#161c27" stroke="#232a38"/><text x="235" y="58" text-anchor="middle" class="t">C3: P4,P5</text>
+
+        <text x="150" y="110" text-anchor="middle" class="t" fill="#ef5b5b">C2 crashes &rarr; rebalance triggered</text>
+
+        <text x="150" y="150" text-anchor="middle" class="h">After: 2 consumers, 6 partitions</text>
+        <rect x="30" y="164" width="90" height="30" fill="#161c27" stroke="#2dd4bf"/><text x="75" y="184" text-anchor="middle" class="t">C1: P0,P1,P2</text>
+        <rect x="140" y="164" width="90" height="30" fill="#161c27" stroke="#2dd4bf"/><text x="185" y="184" text-anchor="middle" class="t">C3: P3,P4,P5</text>
+      </svg>
+      <figcaption>Losing one consumer redistributes its partitions — no data lost, but every consumer pauses briefly during reassignment.</figcaption>
+    </div>
+    <p>Modern Kafka supports <strong>cooperative rebalancing</strong> (<code>CooperativeStickyAssignor</code>), which reassigns only the partitions that actually need to move, instead of revoking everything from everyone first — dramatically shortening the pause.</p>
+
+    <h2><span class="num">6.5</span> Consumer lag</h2>
+    <p><strong>Lag</strong> is the gap between the latest offset written to a partition (log-end-offset) and the offset a consumer group has committed. It's the single most important health metric for a Kafka consumer — rising lag means the consumer can't keep up with the producer's write rate.</p>
+    <pre><code>bin/kafka-consumer-groups.sh --describe --group fraud-detector --bootstrap-server localhost:9092
+<span class="tok-cmt"># LAG column climbing steadily = consumer is falling behind, needs more instances or faster processing</span></code></pre>
+
+    <h2><span class="num">6.6</span> Common mistakes</h2>
+    <ul>
+      <li>Leaving auto-commit on for a pipeline where losing a record on crash is unacceptable.</li>
+      <li>Processing records slowly enough that <code>poll()</code> isn't called within <code>max.poll.interval.ms</code> — the consumer is then considered dead and the group rebalances even though the process is still alive, just busy.</li>
+      <li>Scaling consumers past the partition count — extra instances sit idle (Module 2.11), so partition count is a real ceiling on consumer-side parallelism.</li>
+      <li>Committing offsets before processing completes, turning "at-least-once" into an accidental "at-most-once."</li>
+    </ul>
+
+    <h2><span class="num">6.7</span> Check your understanding</h2>
+    <details class="quiz"><summary>Q1. A consumer commits its offset right after calling poll(), before processing the batch. What delivery guarantee does this actually give you, despite intending at-least-once?</summary><div class="a">At-most-once — if the process crashes after the commit but before finishing processing, those records are skipped forever since the committed offset says they were handled.</div></details>
+    <details class="quiz"><summary>Q2. Consumer lag is climbing steadily even though CPU usage on the consumer looks fine. What are two likely causes?</summary><div class="a">Either the consumer count is below the partition count so throughput is capped, or per-record processing (e.g. a slow downstream call) is the bottleneck rather than CPU — profiling the processing loop, not the CPU graph, is the next step.</div></details>
+
+    <h2><span class="num">6.8</span> Summary</h2>
+    <p>Consumer groups give you parallel, coordinated reading; manual offset commits give you control over exactly what "processed" means; cooperative rebalancing minimizes the pause when group membership changes; and lag is the metric that tells you, in real time, whether your consumers are actually keeping up.</p>
+
+    <div class="footnav">
+      <a href="05-producers.html">&larr; Module 5 · Producers</a>
+      <a class="next" href="07-topics-partitions.html">Module 7 · Topics & Partitions (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>

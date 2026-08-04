@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 11 · Schema Registry — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="11">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 011</span></div>
+    <div class="module-badge">Module 11 of 23</div>
+    <h1 class="title">Schema Registry</h1>
+    <p class="dek lead">Kafka stores bytes, not typed objects — it has no opinion about the shape of your data. Schema Registry is the missing contract layer: it stops a producer's silent field rename from breaking every downstream consumer at 3am.</p>
+
+    <h2><span class="num">11.1</span> The problem it solves</h2>
+    <p>Without a shared contract, a producer team can add, remove, or rename a field, and every downstream consumer finds out only when their deserialization breaks in production. Schema Registry stores versioned schemas centrally and enforces compatibility rules before a new schema is even allowed to register.</p>
+
+    <h2><span class="num">11.2</span> Format choices: Avro, JSON Schema, Protobuf</h2>
+    <table>
+      <tr><th></th><th>Avro</th><th>JSON Schema</th><th>Protobuf</th></tr>
+      <tr><td>Wire format</td><td>Compact binary</td><td>Text (JSON) — larger payloads</td><td>Compact binary</td></tr>
+      <tr><td>Schema evolution</td><td>Strong, mature tooling</td><td>Supported, less strict typing</td><td>Strong, widely used outside Kafka too (gRPC)</td></tr>
+      <tr><td>Ecosystem fit</td><td>Kafka's original/most common choice</td><td>Easiest to debug — human-readable</td><td>Best if you already use Protobuf/gRPC elsewhere</td></tr>
+    </table>
+
+    <h2><span class="num">11.3</span> Registering and using an Avro schema</h2>
+    <pre><code>{
+  <span class="tok-str">"type"</span>: <span class="tok-str">"record"</span>,
+  <span class="tok-str">"name"</span>: <span class="tok-str">"Order"</span>,
+  <span class="tok-str">"fields"</span>: [
+    {<span class="tok-str">"name"</span>: <span class="tok-str">"orderId"</span>, <span class="tok-str">"type"</span>: <span class="tok-str">"string"</span>},
+    {<span class="tok-str">"name"</span>: <span class="tok-str">"amount"</span>, <span class="tok-str">"type"</span>: <span class="tok-str">"double"</span>},
+    {<span class="tok-str">"name"</span>: <span class="tok-str">"status"</span>, <span class="tok-str">"type"</span>: <span class="tok-str">"string"</span>, <span class="tok-str">"default"</span>: <span class="tok-str">"PLACED"</span>}
+  ]
+}</code></pre>
+    <pre><code>props.put(<span class="tok-str">"value.serializer"</span>, <span class="tok-str">"io.confluent.kafka.serializers.KafkaAvroSerializer"</span>);
+props.put(<span class="tok-str">"schema.registry.url"</span>, <span class="tok-str">"http://localhost:8081"</span>);
+<span class="tok-cmt">// the serializer automatically registers/validates the schema on first send</span></code></pre>
+
+    <h2><span class="num">11.4</span> Compatibility modes</h2>
+    <table>
+      <tr><th>Mode</th><th>Rule</th></tr>
+      <tr><td><code>BACKWARD</code></td><td>New schema can read data written with the previous schema (safe to upgrade consumers first)</td></tr>
+      <tr><td><code>FORWARD</code></td><td>Previous schema can read data written with the new schema (safe to upgrade producers first)</td></tr>
+      <tr><td><code>FULL</code></td><td>Both backward and forward compatible — safest, most restrictive</td></tr>
+      <tr><td><code>NONE</code></td><td>No compatibility checks — any schema change allowed, all safety removed</td></tr>
+    </table>
+    <div class="callout tip"><strong>Practical default —</strong> most teams run <code>BACKWARD</code> compatibility: adding a new optional field with a default is safe, but removing a field or changing its type is rejected by the registry before it can break anyone downstream.</div>
+
+    <h2><span class="num">11.5</span> Common mistakes</h2>
+    <ul>
+      <li>Removing a required field without a default — this breaks <code>BACKWARD</code> compatibility and registration is rejected (which is the registry doing its job, not a bug).</li>
+      <li>Running without Schema Registry at all on a multi-team topic — the "just tell people in Slack" contract works until it doesn't.</li>
+      <li>Choosing <code>NONE</code> compatibility to "move fast" and reintroducing the exact problem Schema Registry exists to prevent.</li>
+    </ul>
+
+    <h2><span class="num">11.6</span> Summary</h2>
+    <p>Schema Registry adds a versioned, enforced contract on top of Kafka's raw bytes. Choosing a compatibility mode is choosing which upgrade order (producers-first or consumers-first) your organization can safely support — get this decision right once, and schema changes stop being production incidents.</p>
+
+    <div class="footnav">
+      <a href="10-streams.html">&larr; Module 10 · Kafka Streams</a>
+      <a class="next" href="12-security.html">Module 12 · Security (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>

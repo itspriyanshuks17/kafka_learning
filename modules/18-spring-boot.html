@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 18 · Spring Boot — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="18">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 018</span></div>
+    <div class="module-badge">Module 18 of 23</div>
+    <h1 class="title">Kafka with Spring Boot</h1>
+    <p class="dek lead">Spring for Apache Kafka wraps the raw Java client (Module 5–6) in annotations and templates so most teams never touch KafkaProducer/KafkaConsumer directly. Underneath, it's the exact same client — every guarantee and trade-off from earlier modules still applies.</p>
+
+    <h2><span class="num">18.1</span> Dependency &amp; configuration</h2>
+    <pre><code><span class="tok-cmt">// build.gradle</span>
+implementation <span class="tok-str">'org.springframework.kafka:spring-kafka'</span></code></pre>
+    <pre><code><span class="tok-cmt"># application.yml</span>
+spring:
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+    consumer:
+      group-id: fraud-detector
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false</code></pre>
+
+    <h2><span class="num">18.2</span> Producing with KafkaTemplate</h2>
+    <pre><code><span class="tok-kw">@Service</span>
+<span class="tok-kw">public class</span> OrderProducer {
+
+    <span class="tok-kw">private final</span> KafkaTemplate&lt;String, OrderEvent&gt; kafkaTemplate;
+
+    <span class="tok-kw">public</span> OrderProducer(KafkaTemplate&lt;String, OrderEvent&gt; kafkaTemplate) {
+        <span class="tok-kw">this</span>.kafkaTemplate = kafkaTemplate;
+    }
+
+    <span class="tok-kw">public void</span> publish(OrderEvent event) {
+        kafkaTemplate.send(<span class="tok-str">"orders"</span>, event.getOrderId(), event)
+            .whenComplete((result, ex) -&gt; {
+                <span class="tok-kw">if</span> (ex != <span class="tok-kw">null</span>) log.error(<span class="tok-str">"publish failed"</span>, ex);
+            });
+    }
+}</code></pre>
+
+    <h2><span class="num">18.3</span> Consuming with @KafkaListener</h2>
+    <pre><code><span class="tok-kw">@Component</span>
+<span class="tok-kw">public class</span> OrderConsumer {
+
+    <span class="tok-kw">@KafkaListener</span>(topics = <span class="tok-str">"orders"</span>, groupId = <span class="tok-str">"fraud-detector"</span>)
+    <span class="tok-kw">public void</span> handle(OrderEvent event, Acknowledgment ack) {
+        <span class="tok-kw">try</span> {
+            process(event);
+            ack.acknowledge(); <span class="tok-cmt">// manual commit — mirrors Module 6.3</span>
+        } <span class="tok-kw">catch</span> (Exception e) {
+            <span class="tok-cmt">// let the error handler / retry mechanism deal with it — see 18.4</span>
+            <span class="tok-kw">throw</span> e;
+        }
+    }
+}</code></pre>
+
+    <h2><span class="num">18.4</span> Error handling &amp; retry</h2>
+    <pre><code><span class="tok-kw">@Bean</span>
+<span class="tok-kw">public</span> DefaultErrorHandler errorHandler() {
+    <span class="tok-kw">var</span> recoverer = <span class="tok-kw">new</span> DeadLetterPublishingRecoverer(kafkaTemplate);
+    <span class="tok-kw">var</span> backOff = <span class="tok-kw">new</span> FixedBackOff(<span class="tok-num">1000L</span>, <span class="tok-num">3L</span>); <span class="tok-cmt">// retry 3 times, 1s apart</span>
+    <span class="tok-kw">return new</span> DefaultErrorHandler(recoverer, backOff);
+}</code></pre>
+    <p>After exhausting retries, <code>DeadLetterPublishingRecoverer</code> automatically republishes the failed record to a <code>orders.DLT</code> topic — a standard pattern so a poison-pill message doesn't block the whole partition forever while still preserving it for manual investigation.</p>
+
+    <h2><span class="num">18.5</span> JSON messages &amp; type mapping</h2>
+    <pre><code>spring:
+  kafka:
+    consumer:
+      properties:
+        spring.json.trusted.packages: <span class="tok-str">"com.shop.events"</span>
+        spring.json.value.default.type: com.shop.events.OrderEvent</code></pre>
+    <div class="callout warn"><strong>Security note —</strong> <code>spring.json.trusted.packages: "*"</code> lets the deserializer instantiate arbitrary classes from message content — always scope this to your actual event packages in anything beyond local development.</div>
+
+    <h2><span class="num">18.6</span> Common mistakes</h2>
+    <ul>
+      <li>Leaving <code>enable-auto-commit</code> at its default true while also manually calling <code>ack.acknowledge()</code> — the two mechanisms conflict; pick one (Module 6.3's logic applies identically here).</li>
+      <li>Not configuring a dead-letter topic — a single malformed message can block an entire partition's consumer indefinitely on retry.</li>
+      <li>Trusting <code>*</code> in <code>spring.json.trusted.packages</code> in production.</li>
+    </ul>
+
+    <h2><span class="num">18.7</span> Summary</h2>
+    <p><code>KafkaTemplate</code> and <code>@KafkaListener</code> are ergonomic wrappers around the exact producer/consumer client from Modules 5–6 — acks, manual offset commits, and delivery guarantees all mean the same thing here. The Spring-specific value-add is declarative retry and dead-letter handling via <code>DefaultErrorHandler</code>.</p>
+
+    <div class="footnav">
+      <a href="17-aws-msk.html">&larr; Module 17 · AWS MSK</a>
+      <a class="next" href="19-microservices.html">Module 19 · Kafka in Microservices (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 15 · Docker — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="15">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 015</span></div>
+    <div class="module-badge">Module 15 of 23</div>
+    <h1 class="title">Docker Deployment</h1>
+    <p class="dek lead">Module 3 covered a single Docker broker for a quick test. This module builds a real multi-broker cluster with Docker Compose — the setup most teams actually use for local development and CI.</p>
+
+    <h2><span class="num">15.1</span> Multi-broker Docker Compose</h2>
+    <pre><code><span class="tok-cmt"># docker-compose.yml</span>
+services:
+  kafka1:
+    image: apache/kafka:3.9.0
+    hostname: kafka1
+    ports: ["9092:9092"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka1:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:9093,2@kafka2:9093,3@kafka3:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+    volumes: ["kafka1-data:/var/lib/kafka/data"]
+
+  kafka2:
+    image: apache/kafka:3.9.0
+    hostname: kafka2
+    ports: ["9093:9092"]
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:9093,2@kafka2:9093,3@kafka3:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+    volumes: ["kafka2-data:/var/lib/kafka/data"]
+
+  kafka3:
+    image: apache/kafka:3.9.0
+    hostname: kafka3
+    ports: ["9094:9092"]
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka3:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:9093,2@kafka2:9093,3@kafka3:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+    volumes: ["kafka3-data:/var/lib/kafka/data"]
+
+volumes:
+  kafka1-data:
+  kafka2-data:
+  kafka3-data:</code></pre>
+    <pre><code>docker compose up -d
+docker compose exec kafka1 /opt/kafka/bin/kafka-topics.sh \
+  --create --topic orders --bootstrap-server kafka1:9092 \
+  --partitions 6 --replication-factor 3</code></pre>
+
+    <h2><span class="num">15.2</span> Persistent volumes</h2>
+    <p>The named volumes (<code>kafka1-data</code>, etc.) in the compose file above are what make <code>docker compose down &amp;&amp; docker compose up</code> preserve topic data across restarts — without them, every restart wipes the cluster's storage, which is fine for a throwaway test but wrong for anything you're actually developing against over multiple days.</p>
+
+    <h2><span class="num">15.3</span> Adding a UI</h2>
+    <pre><code>  kafka-ui:
+    image: provectuslabs/kafka-ui
+    ports: ["8080:8080"]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka1:9092,kafka2:9092,kafka3:9092</code></pre>
+    <p>Gives you topic/partition browsing, consumer group lag, and message inspection in a browser at <code>localhost:8080</code> — genuinely useful for daily development, not just a nice-to-have.</p>
+
+    <h2><span class="num">15.4</span> Common mistakes</h2>
+    <ul>
+      <li>Forgetting to set <code>KAFKA_ADVERTISED_LISTENERS</code> to the container's Docker network hostname — clients inside other containers can't resolve <code>localhost</code> the way your host machine can.</li>
+      <li>Not using named volumes — losing all local topic data on every <code>docker compose down</code>.</li>
+      <li>Running all three brokers on a laptop with too little memory allocated to Docker — Kafka brokers are not lightweight processes even at small scale.</li>
+    </ul>
+
+    <h2><span class="num">15.5</span> Summary</h2>
+    <p>A three-broker Docker Compose cluster with named volumes gives you a realistic local environment — real replication, real leader election, real rebalancing — without any cloud cost. This is the setup worth reaching for before testing against a shared dev cluster.</p>
+
+    <div class="footnav">
+      <a href="14-performance.html">&larr; Module 14 · Performance Tuning</a>
+      <a class="next" href="16-kubernetes.html">Module 16 · Kubernetes (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>

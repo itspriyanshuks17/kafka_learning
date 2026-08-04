@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 12 · Security — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="12">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 012</span></div>
+    <div class="module-badge">Module 12 of 23</div>
+    <h1 class="title">Security</h1>
+    <p class="dek lead">Every quickstart in Module 3 ran with zero security — fine for a laptop, unacceptable for anything with real data flowing through it. Three independent layers make Kafka production-safe: encryption in transit, authentication, and authorization.</p>
+
+    <h2><span class="num">12.1</span> SSL/TLS — encryption in transit</h2>
+    <p>SSL encrypts traffic between clients and brokers (and between brokers themselves) so data isn't readable on the wire. Configured per-listener:</p>
+    <pre><code><span class="tok-cmt"># server.properties</span>
+listeners=SSL://:9093
+ssl.keystore.location=/var/kafka/ssl/kafka.keystore.jks
+ssl.keystore.password=changeit
+ssl.truststore.location=/var/kafka/ssl/kafka.truststore.jks
+ssl.truststore.password=changeit</code></pre>
+
+    <h2><span class="num">12.2</span> SASL — authentication</h2>
+    <p>SASL (Simple Authentication and Security Layer) verifies <em>who</em> is connecting. Kafka supports several mechanisms:</p>
+    <table>
+      <tr><th>Mechanism</th><th>How it works</th></tr>
+      <tr><td>SASL/PLAIN</td><td>Username + password, typically layered under SSL so credentials aren't sent in the clear</td></tr>
+      <tr><td>SASL/SCRAM</td><td>Salted challenge-response — credentials stored as a hash, not plaintext, inside Kafka itself</td></tr>
+      <tr><td>SASL/GSSAPI (Kerberos)</td><td>Enterprise SSO integration, common in large regulated environments</td></tr>
+      <tr><td>SASL/OAUTHBEARER</td><td>OAuth2 token-based auth, common with cloud-managed Kafka and modern identity providers</td></tr>
+    </table>
+    <pre><code><span class="tok-cmt"># client config for SASL/SCRAM over SSL</span>
+security.protocol=SASL_SSL
+sasl.mechanism=SCRAM-SHA-256
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+  username="app-producer" password="secret";</code></pre>
+
+    <h2><span class="num">12.3</span> ACLs — authorization</h2>
+    <p>Authentication answers "who are you?" — ACLs (Access Control Lists) answer "what are you allowed to do?" Kafka's authorizer checks every request against configured ACLs before allowing it.</p>
+    <pre><code><span class="tok-cmt"># allow app-producer to write to the orders topic only</span>
+bin/kafka-acls.sh --bootstrap-server localhost:9092 \
+  --add --allow-principal User:app-producer \
+  --operation Write --topic orders
+
+<span class="tok-cmt"># allow fraud-detector group to read orders</span>
+bin/kafka-acls.sh --bootstrap-server localhost:9092 \
+  --add --allow-principal User:fraud-detector \
+  --operation Read --topic orders --group fraud-detector</code></pre>
+
+    <h2><span class="num">12.4</span> Encryption at rest</h2>
+    <p>Kafka itself doesn't encrypt data on disk natively — encryption at rest is typically handled at the infrastructure layer: encrypted EBS volumes on AWS, encrypted persistent disks on GCP, or disk-level encryption (LUKS) for self-managed deployments.</p>
+
+    <h2><span class="num">12.5</span> Putting the layers together</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 640 180" xmlns="http://www.w3.org/2000/svg">
+        <style>.t{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#cfd4dc}.h{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600}</style>
+        <circle cx="70" cy="90" r="34" fill="#161c27" stroke="#f5a623"/><text x="70" y="94" text-anchor="middle" class="t" fill="#f5a623">Client</text>
+        <line x1="104" y1="90" x2="220" y2="90" stroke="#2dd4bf"/>
+        <text x="160" y="80" text-anchor="middle" class="t" fill="#8b96a8" font-size="9">1. SSL: encrypted</text>
+        <rect x="225" y="40" width="150" height="100" rx="4" fill="none" stroke="#232a38" stroke-dasharray="4 3"/>
+        <text x="300" y="30" text-anchor="middle" class="h" fill="#cfd4dc">Broker</text>
+        <text x="300" y="70" text-anchor="middle" class="t" font-size="10">2. SASL: authenticate</text>
+        <text x="300" y="95" text-anchor="middle" class="t" font-size="10">3. ACL: authorize</text>
+        <text x="300" y="120" text-anchor="middle" class="t" font-size="10">4. request served</text>
+        <line x1="375" y1="90" x2="500" y2="90" stroke="#2dd4bf"/>
+        <rect x="505" y="60" width="110" height="60" rx="3" fill="#161c27" stroke="#232a38"/>
+        <text x="560" y="90" text-anchor="middle" class="t" font-size="10">Partition log</text>
+        <text x="560" y="106" text-anchor="middle" class="t" fill="#8b96a8" font-size="9">encrypted disk (infra layer)</text>
+      </svg>
+      <figcaption>Every request passes through all three layers in order — encryption, authentication, then authorization.</figcaption>
+    </div>
+
+    <h2><span class="num">12.6</span> Common mistakes</h2>
+    <ul>
+      <li>Running SASL without SSL — credentials for SASL/PLAIN travel in the clear without transport encryption underneath.</li>
+      <li>Granting broad ACLs ("allow all") "to unblock a deploy" and never tightening them afterward.</li>
+      <li>Forgetting inter-broker traffic also needs securing — a cluster with client-facing SSL but plaintext broker-to-broker replication still leaks data.</li>
+    </ul>
+
+    <h2><span class="num">12.7</span> Summary</h2>
+    <p>Kafka security is three independent, stackable layers: SSL for encryption in transit, SASL for authentication, and ACLs for fine-grained authorization — plus infrastructure-level encryption at rest. Skipping any one layer leaves a real, specific gap, not just theoretical risk.</p>
+
+    <div class="footnav">
+      <a href="11-schema-registry.html">&larr; Module 11 · Schema Registry</a>
+      <a class="next" href="13-monitoring.html">Module 13 · Monitoring (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>

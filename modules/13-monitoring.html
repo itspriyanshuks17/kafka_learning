@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 13 · Monitoring — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="13">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 013</span></div>
+    <div class="module-badge">Module 13 of 23</div>
+    <h1 class="title">Monitoring</h1>
+    <p class="dek lead">Kafka exposes an enormous amount of internal state via JMX. The skill isn't knowing every metric — it's knowing the handful that actually predict an incident before it happens.</p>
+
+    <h2><span class="num">13.1</span> JMX — where every metric comes from</h2>
+    <p>Kafka is a JVM application, so every broker, producer, and consumer metric is exposed as a JMX MBean. Enable remote JMX on a broker:</p>
+    <pre><code>export JMX_PORT=9999
+export KAFKA_JMX_OPTS="-Dcom.sun.management.jmxremote.authenticate=false \
+  -Dcom.sun.management.jmxremote.ssl=false"
+bin/kafka-server-start.sh config/server.properties</code></pre>
+
+    <h2><span class="num">13.2</span> The metrics that actually matter</h2>
+    <table>
+      <tr><th>Metric</th><th>Why it matters</th></tr>
+      <tr><td><code>UnderReplicatedPartitions</code></td><td>Non-zero means some partition has fewer in-sync replicas than expected — an early durability warning</td></tr>
+      <tr><td><code>ActiveControllerCount</code></td><td>Should be exactly 1 cluster-wide; 0 or &gt;1 signals a controller election problem</td></tr>
+      <tr><td>Consumer group lag</td><td>The clearest signal a consumer can't keep up (Module 6.5)</td></tr>
+      <tr><td><code>RequestQueueSize</code> / request latency percentiles</td><td>Rising p99 latency on produce/fetch requests is an early sign of broker overload</td></tr>
+      <tr><td><code>BytesInPerSec</code> / <code>BytesOutPerSec</code></td><td>Raw throughput per broker — useful for spotting hot brokers or hot partitions</td></tr>
+      <tr><td>Disk usage per broker</td><td>Kafka doesn't degrade gracefully when it runs out of disk — this needs hard alerting, not just dashboards</td></tr>
+    </table>
+
+    <h2><span class="num">13.3</span> Kafka Exporter + Prometheus</h2>
+    <p><a>kafka_exporter</a> (or the JMX Exporter Java agent) scrapes broker JMX metrics and exposes them in Prometheus format:</p>
+    <pre><code>docker run -d --name kafka-exporter -p 9308:9308 \
+  danielqsj/kafka-exporter --kafka.server=kafka:9092</code></pre>
+    <pre><code><span class="tok-cmt"># prometheus.yml</span>
+scrape_configs:
+  - job_name: <span class="tok-str">'kafka'</span>
+    static_configs:
+      - targets: [<span class="tok-str">'kafka-exporter:9308'</span>]</code></pre>
+
+    <h2><span class="num">13.4</span> Grafana dashboards</h2>
+    <p>Once Prometheus is scraping, a Grafana dashboard built on the exported metrics typically tracks, per topic and per consumer group: lag over time, bytes in/out per second, under-replicated partition count, and request latency percentiles — the same shortlist from 13.2, visualized.</p>
+
+    <h2><span class="num">13.5</span> Common mistakes</h2>
+    <ul>
+      <li>Dashboarding everything JMX exposes with no alerting on the handful of metrics that actually predict failure.</li>
+      <li>Alerting on absolute lag numbers instead of lag <em>trend</em> — a stable lag of 50,000 on a high-throughput topic can be healthy; a rapidly growing lag of 500 is the real warning sign.</li>
+      <li>No disk-usage alerting — Kafka brokers that run out of disk stop accepting writes entirely, and by the time it shows up as a customer-facing incident it's too late for a graceful fix.</li>
+    </ul>
+
+    <h2><span class="num">13.6</span> Summary</h2>
+    <p>JMX is the source of truth for every Kafka metric; kafka_exporter/JMX Exporter bridges that into Prometheus; Grafana visualizes it. The real skill is alerting on the small set of metrics — under-replicated partitions, controller count, lag trend, and disk usage — that actually predict incidents rather than drowning in dashboards.</p>
+
+    <div class="footnav">
+      <a href="12-security.html">&larr; Module 12 · Security</a>
+      <a class="next" href="14-performance.html">Module 14 · Performance Tuning (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
