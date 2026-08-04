@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module 10 · Kafka Streams — Kafka Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-module="10">
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-brand"><div class="k">topic: kafka-notes</div><h1>Kafka Notes</h1><div class="sub">beginner &rarr; production, one segment at a time</div></div>
+    <div class="rail-log" id="rail-mount"></div>
+  </nav>
+  <main class="main">
+    <div class="crumb"><a href="../index.html">kafka-notes</a><span class="sep">/</span><span class="here">partition-0 · offset 010</span></div>
+    <div class="module-badge">Module 10 of 23</div>
+    <h1 class="title">Kafka Streams</h1>
+    <p class="dek lead">Kafka Streams is a Java library — not a separate cluster to run — for building stream-processing applications directly on top of topics. The core idea to internalize: a stream and a table are two views of the same data, and Streams lets you move fluidly between them.</p>
+
+    <h2><span class="num">10.1</span> KStream vs KTable — the stream-table duality</h2>
+    <table>
+      <tr><th></th><th>KStream</th><th>KTable</th></tr>
+      <tr><td>Represents</td><td>An unbounded sequence of independent events</td><td>The latest value per key — a continuously updated table</td></tr>
+      <tr><td>Underlying storage</td><td>Regular topic</td><td>Compacted topic (Module 8.3) + local state store</td></tr>
+      <tr><td>Analogy</td><td>Bank transactions</td><td>Current account balance</td></tr>
+      <tr><td>New record with same key</td><td>Both records kept, in order</td><td>New record replaces the old value for that key</td></tr>
+    </table>
+
+    <h2><span class="num">10.2</span> A basic topology</h2>
+    <pre><code>StreamsBuilder builder = <span class="tok-kw">new</span> StreamsBuilder();
+
+KStream&lt;String, String&gt; orders = builder.stream(<span class="tok-str">"orders"</span>);
+
+KStream&lt;String, String&gt; highValue = orders
+    .filter((key, value) -&gt; extractAmount(value) &gt; 1000)
+    .mapValues(value -&gt; enrich(value));
+
+highValue.to(<span class="tok-str">"high-value-orders"</span>);
+
+KafkaStreams streams = <span class="tok-kw">new</span> KafkaStreams(builder.build(), props);
+streams.start();</code></pre>
+
+    <h2><span class="num">10.3</span> Aggregations</h2>
+    <pre><code>KTable&lt;String, Long&gt; orderCountByCustomer = orders
+    .groupBy((key, value) -&gt; extractCustomerId(value))
+    .count();
+
+orderCountByCustomer.toStream().to(<span class="tok-str">"orders-per-customer"</span>);</code></pre>
+    <p>Every aggregation like <code>count()</code>, <code>reduce()</code>, or <code>aggregate()</code> produces a <strong>KTable</strong>, backed by a local state store (RocksDB by default) and a compacted changelog topic that lets state be rebuilt if an instance restarts or moves to another machine.</p>
+
+    <h2><span class="num">10.4</span> Windowing</h2>
+    <p>Aggregating "forever" often isn't useful — you want counts <em>per 5-minute window</em>. Windowing buckets events by time before aggregating:</p>
+    <pre><code>KTable&lt;Windowed&lt;String&gt;, Long&gt; ordersPer5Min = orders
+    .groupBy((key, value) -&gt; extractCustomerId(value))
+    .windowedBy(TimeWindows.ofSizeWithNoGrace(Duration.ofMinutes(5)))
+    .count();</code></pre>
+    <table>
+      <tr><th>Window type</th><th>Behavior</th></tr>
+      <tr><td>Tumbling</td><td>Fixed-size, non-overlapping windows (e.g. every 5 min, cleanly)</td></tr>
+      <tr><td>Hopping</td><td>Fixed-size, overlapping windows (e.g. 5-min window every 1 min)</td></tr>
+      <tr><td>Sliding</td><td>A window per pair of events within a time bound of each other</td></tr>
+      <tr><td>Session</td><td>Dynamic-size windows that close after a period of inactivity — natural fit for user session analytics</td></tr>
+    </table>
+
+    <h2><span class="num">10.5</span> Joins</h2>
+    <p>Joins combine two streams/tables by key — the same relational concept, adapted for unbounded data:</p>
+    <ul>
+      <li><strong>KStream–KStream join</strong> — joins two event streams within a time window (e.g. matching a click with a later purchase within 10 minutes).</li>
+      <li><strong>KStream–KTable join</strong> — enriches a stream of events with the latest value from a table (e.g. enrich an order event with the customer's current tier from a customers KTable).</li>
+      <li><strong>KTable–KTable join</strong> — joins two tables, producing a new continuously-updated table.</li>
+    </ul>
+    <pre><code>KStream&lt;String, String&gt; enrichedOrders = orders.join(
+    customersTable,
+    (order, customer) -&gt; combine(order, customer)
+);</code></pre>
+
+    <h2><span class="num">10.6</span> Exactly-once processing</h2>
+    <p>Setting <code>processing.guarantee=exactly_once_v2</code> wraps the read-process-write cycle in a Kafka transaction (Module 5.8) — consuming input, updating state, and producing output all commit or roll back together, so a crash mid-processing never produces duplicate or partial output.</p>
+
+    <h2><span class="num">10.7</span> Common mistakes</h2>
+    <ul>
+      <li>Confusing a KTable's "latest value wins" semantics with a KStream's "every event kept" semantics when choosing the wrong abstraction for the job.</li>
+      <li>Ignoring state store sizing — RocksDB state for large keyspaces needs real disk and memory planning, not just default settings.</li>
+      <li>Using tumbling windows for user-session-style analysis where session windows are the natural fit — tumbling windows will split one real session across multiple fixed buckets.</li>
+    </ul>
+
+    <h2><span class="num">10.8</span> Check your understanding</h2>
+    <details class="quiz"><summary>Q1. Two records arrive with the same key — one on a KStream, one on a KTable. What's different about how each is handled?</summary><div class="a">On a KStream both records are kept and processed independently, in order. On a KTable the second record replaces the first as the current value for that key — only the latest value per key is retained.</div></details>
+    <details class="quiz"><summary>Q2. Why is a session window a better fit than a tumbling window for analyzing user browsing sessions?</summary><div class="a">A tumbling window has a fixed boundary that can arbitrarily split one continuous user session across two buckets. A session window's size is determined by actual inactivity gaps, so it naturally captures a full session regardless of how long it lasted.</div></details>
+
+    <h2><span class="num">10.9</span> Summary</h2>
+    <p>Kafka Streams treats streams and tables as two sides of the same coin — every aggregation turns a stream into a table, backed by a compacted changelog topic. Windowing bounds "forever" aggregations into meaningful time buckets, joins combine streams and tables by key, and exactly-once processing extends Kafka's transactional guarantees across the whole read-process-write cycle.</p>
+
+    <div class="footnav">
+      <a href="09-connect.html">&larr; Module 9 · Kafka Connect</a>
+      <a class="next" href="11-schema-registry.html">Module 11 · Schema Registry (next) &rarr;</a>
+    </div>
+  </main>
+</div>
+<script src="../assets/main.js"></script>
+</body>
+</html>
